@@ -83,7 +83,7 @@ def determine_name(thing, name=None, try_repr=False):
         return repr(thing)
     return name
 
-λ = '<lambda>'
+λ = determine_name(lambda: None)
 
 class ExportError(NameError):
     pass
@@ -194,11 +194,13 @@ class SimpleNamespace(object):
 # UTILITY FUNCTIONS: getattr(…) shortcuts:
 or_none = lambda thing, atx: getattr(thing, atx, None)
 getpyattr = lambda thing, atx, default_value=None: getattr(thing, '__%s__' % atx, default_value)
-accessor = lambda function, thing, *attrs: ([atx for atx in (function(thing, atx) for atx in attrs) if atx is not None] or [None]).pop(0)
+
+accessor = lambda function, thing, *attrs: ([atx for atx in (function(thing, atx) \
+                                                 for atx in attrs) \
+                                                 if atx is not None] or [None]).pop(0)
+
 attr = lambda thing, *attrs: accessor(or_none, thing, *attrs)
 pyattr = lambda thing, *attrs: accessor(getpyattr, thing, *attrs)
-# attr = lambda thing, *attrs: ([atx for atx in (or_none(thing, atx) for atx in attrs) if atx is not None] or [None]).pop(0)
-# pyattr = lambda thing, *attrs: ([atx for atx in (getpyattr(thing, atx) for atx in attrs) if atx is not None] or [None]).pop(0)
 
 @export
 def nameof(thing, fallback=''):
