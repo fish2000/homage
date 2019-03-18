@@ -84,6 +84,7 @@ import dateutil
 import functools
 import inspect
 import itertools
+import math
 import numpy
 import requests
 import shutil
@@ -129,6 +130,7 @@ __all__ = ('Image',
            'functools',
            'inspect',
            'itertools',
+           'math',
            'numpy',
            'requests',
            'shutil',
