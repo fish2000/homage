@@ -81,6 +81,7 @@ import contextlib
 import copy
 import datetime
 import dateutil
+import decimal
 import functools
 import inspect
 import itertools
@@ -127,11 +128,13 @@ __all__ = ('Image',
            'copy',
            'datetime',
            'dateutil',
+           'decimal',
            'functools',
            'inspect',
            'itertools',
            'math',
            'numpy',
+           'reduce', 'Σ',
            'requests',
            'shutil',
            'six',
@@ -146,6 +149,13 @@ __all__ = ('Image',
 
 python2_expires = 'January 1st, 2020'
 is_python2_dead = datetime.datetime.now() >= dateutil.parser.parse(python2_expires)
+
+try:
+    from functools import reduce
+except (ImportError, SyntaxError):
+    pass
+
+Σ = reduce
 
 try:
     import abc
