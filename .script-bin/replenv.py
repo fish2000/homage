@@ -175,11 +175,13 @@ except (ImportError, SyntaxError):
     pass
 else:
     # Extend `__all__`:
-    __all__ += ('asset', 'image_paths')
+    __all__ += ('asset', 'image_paths', 'catimage')
     # Prepare a list of readily open-able image file paths:
     image_paths = list(map(
         lambda image_file: asset.path('img', image_file),
             asset.listfiles('img')))
+    # I do this practically every time, so I might as well do it here:
+    catimage = Image.open(image_paths[0])
 
 # `__dir__` listifies `__all__`:
 __dir__ = lambda: list(__all__)

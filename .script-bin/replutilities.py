@@ -4,6 +4,14 @@ from __future__ import print_function
 
 import sys
 
+try:
+    from pathlib import Path
+except ImportError:
+    try:
+        from pathlib2 import Path
+    except ImportError:
+        Path = None
+
 #  N.B. this may or may not be a PY2/PY3 thing:
 maxint = getattr(sys, 'maxint',
          getattr(sys, 'maxsize', (2 ** 64) / 2))
@@ -12,6 +20,7 @@ import io, os, re, six
 import argparse
 import array
 import contextlib
+import decimal
 import numpy
 
 __exports__ = {}
@@ -74,6 +83,8 @@ def determine_name(thing, name=None, try_repr=False):
         return repr(thing)
     return name
 
+λ = '<lambda>'
+
 class ExportError(NameError):
     pass
 
@@ -100,19 +111,24 @@ def export(thing, name=None, *, doc=None):
     # Access the module-namespace __exports__ dict:
     global __exports__
     
-    # No explict name was passed --
-    # try to determine one:
-    name = determine_name(thing, name=name)
+    # No explict name was passed -- try to determine one:
+    named = determine_name(thing, name=name)
     
-    # Double-check our name and item before stowing:
-    if name is None:
+    # Double-check our determined name and item before stowing:
+    if named is None:
         raise ExportError("can’t export an unnamed thing")
-    if name in __exports__:
-        raise ExportError("can’t re-export “%s”" % name)
-    if name == '<lambda>':
+    if named == λ:
         raise ExportError("can’t export an unnamed lambda")
+    if named in __exports__:
+        raise ExportError("can’t re-export name “%s”" % named)
     if thing is __exports__:
         raise ExportError("can’t export the __export__ dict directly")
+    
+    # At this point, “named” is valid -- if we were passed
+    # a lambda, try to rename it with our valid name:
+    if callable(thing):
+        if getattr(thing, '__name__', '') == λ:
+            thing.__name__ = thing.__qualname__ = named
     
     # If a “doc” argument was passed in, attempt to assign
     # the __doc__ attribute accordingly on the item -- note
@@ -126,15 +142,17 @@ def export(thing, name=None, *, doc=None):
             pass
     
     # Stow the item in the global __exports__ dict:
-    __exports__[name] = thing
+    __exports__[named] = thing
     
     # Attempt to assign our name as a private attribute
     # on the item -- q.v. __doc__ note supra.
     if not hasattr(thing, '__export_name__'):
         try:
-            thing.__export_name__ = name
+            thing.__export_name__ = named
         except AttributeError:
             pass
+    
+    # Return the thing, unchanged (that’s how we decorate).
     return thing
 
 @export
@@ -215,7 +233,6 @@ allattrs = lambda thing, *attrs: all(hasattr(thing, atx) for atx in attrs)
 anypyattrs = lambda thing, *attrs: any(haspyattr(thing, atx) for atx in attrs)
 allpyattrs = lambda thing, *attrs: all(haspyattr(thing, atx) for atx in attrs)
 
-# isiterable = lambda thing: hasattr(thing, '__iter__') or hasattr(thing, '__getitem__')
 isiterable = lambda thing: anypyattrs(thing, 'iter', 'getitem')
 
 @export
@@ -240,19 +257,19 @@ def graceful_issubclass(thing, *cls_or_tuple):
 
 # UTILITY FUNCTIONS: is<something>() unary-predicates, and utility type-tuples with which
 # said predicates use to make their decisions:
-isabstract = lambda method: getattr(method, '__isabstractmethod__', False)
+isabstractmethod = lambda method: getattr(method, '__isabstractmethod__', False)
+isabstract = lambda thing: bool(pyattr(thing, 'abstractmethods', 'isabstractmethod'))
 isabstractcontextmanager = lambda cls: graceful_issubclass(cls, contextlib.AbstractContextManager)
-# iscontextmanager = lambda cls: (hasattr(cls, '__enter__') and hasattr(cls, '__exit__')) \
-#                                                            or isabstractcontextmanager(cls)
 iscontextmanager = lambda cls: allpyattrs(cls, 'enter', 'exit') or isabstractcontextmanager(cls)
 
+numeric_types = (int, float, decimal.Decimal)
 array_types = (numpy.ndarray,
                numpy.matrix,
                numpy.ma.MaskedArray, array.ArrayType,
                                      bytearray)
 bytes_types = (bytes, bytearray)
 string_types = six.string_types
-path_classes = tuplize(argparse.FileType, or_none(os, 'PathLike'))
+path_classes = tuplize(argparse.FileType, or_none(os, 'PathLike'), Path) # Path may be “None” in disguise
 path_types = string_types + bytes_types + path_classes
 file_types = (io.TextIOBase, io.BufferedIOBase, io.RawIOBase, io.IOBase)
 callable_types = (types.Function,
@@ -272,12 +289,15 @@ ispathtype = lambda cls: issubclass(cls, path_types)
 ispath = lambda thing: graceful_issubclass(thing, path_types) or haspyattr(thing, 'fspath')
 isvalidpath = lambda thing: ispath(thing) and os.path.exists(thing)
 
+isnumber = lambda thing: issubclass(thing, numeric_types)
 isarray = lambda thing: graceful_issubclass(thing, array_types)
 isstring = lambda thing: graceful_issubclass(thing, string_types)
 isbytes = lambda thing: graceful_issubclass(thing, bytes_types)
-isfunction = lambda thing: graceful_issubclass(thing, types.Function, types.Lambda)
+isfunction = lambda thing: graceful_issubclass(thing, types.Function, types.Lambda) or callable(thing)
+islambda = lambda thing: pyattr('name', 'qualname') == λ
 
 # THE MODULE EXPORTS:
+export(λ,               name='λ')
 export(or_none,         name='or_none',     doc="or_none(thing, attribute) → shortcut for getattr(thing, attribute, None)")
 export(attr,            name='attr',        doc="Return the first existing attribute from a thing, given 1+ attribute names")
 export(getpyattr,       name='getpyattr',   doc="getpyattr(thing, attribute[, default]) → shortcut for getattr(thing, '__%s__' % attribute[, default])")
@@ -297,10 +317,12 @@ export(anypyattrs,      name='anypyattrs')
 export(allpyattrs,      name='allpyattrs')
 
 export(isiterable,                  name='isiterable')
+export(isabstractmethod,            name='isabstractmethod')
 export(isabstract,                  name='isabstract')
 export(isabstractcontextmanager,    name='isabstractcontextmanager')
 export(iscontextmanager,            name='iscontextmanager')
 
+export(numeric_types,   name='numeric_types')
 export(array_types,     name='array_types')
 export(bytes_types,     name='bytes_types')
 export(string_types,    name='string_types')
@@ -314,6 +336,7 @@ export(ispathtype,      name='ispathtype')
 export(ispath,          name='ispath')
 export(isvalidpath,     name='isvalidpath')
 
+export(isnumber,        name='isnumber')
 export(isarray,         name='isarray')
 export(isstring,        name='isstring')
 export(isbytes,         name='isbytes')
@@ -329,18 +352,20 @@ __dir__ = lambda: list(__all__)
 def test():
     from pprint import pprint
     
-    print("ALL:")
+    print("ALL: (length=%i)" % len(__all__))
+    print()
     pprint(__all__)
     
     print()
     
-    print("DIR():")
+    print("DIR(): (length=%i)" % len(__dir__()))
+    print()
     pprint(__dir__())
     
     print()
     
-    print("EXPORTS:")
-    # print(__exports__)
+    print("EXPORTS: (length=%i)" % len(__exports__))
+    print()
     pprint(__exports__)
     
     print()
@@ -355,7 +380,13 @@ def test():
     
     # import doctest
     # print(doctest._indent(types.__doc__))
+    print("» Checking “types.__doc__ …”")
+    print()
+    
+    print('-' * 80)
     print(types.__doc__)
+    print('-' * 80)
+    print()
 
 if __name__ == '__main__':
     test()
