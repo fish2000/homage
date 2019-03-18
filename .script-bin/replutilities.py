@@ -2,6 +2,12 @@
 # -*- encoding: utf-8 -*-
 from __future__ import print_function
 
+import sys
+
+#  N.B. this may or may not be a PY2/PY3 thing:
+maxint = getattr(sys, 'maxint',
+         getattr(sys, 'maxsize', (2 ** 64) / 2))
+
 import io, os, re, six
 import argparse
 import array
@@ -10,11 +16,44 @@ import numpy
 
 __exports__ = {}
 
-def determine_name(thing, name=None, use_repr=False):
+def doctrim(docstring):
+    """ This function is straight outta PEP257 -- q.v. `trim(…)`,
+       “Handling Docstring Indentation” subsection sub.:
+            https://www.python.org/dev/peps/pep-0257/#id18
+    """
+    if not docstring:
+        return ''
+    # Convert tabs to spaces (following the normal Python rules)
+    # and split into a list of lines:
+    lines = docstring.expandtabs().splitlines()
+    # Determine minimum indentation (first line doesn't count):
+    indent = maxint
+    for line in lines[1:]:
+        stripped = line.lstrip()
+        if stripped:
+            indent = min(indent, len(line) - len(stripped))
+    # Remove indentation (first line is special):
+    trimmed = [lines[0].strip()]
+    if indent < maxint:
+        for line in lines[1:]:
+            trimmed.append(line[indent:].rstrip())
+    # Strip off trailing and leading blank lines:
+    while trimmed and not trimmed[-1]:
+        trimmed.pop()
+    while trimmed and not trimmed[0]:
+        trimmed.pop(0)
+    # Return a single string:
+    return '\n'.join(trimmed)
+
+def determine_name(thing, name=None, try_repr=False):
     """ Private module function to find a name for a thing. """
     if name is not None:
         return name
     code = None
+    if hasattr(thing, '__export_name__'):
+        # q.v. “export(…)” deco-function sub.
+        if thing.__export_name__:
+            return thing.__export_name__
     if hasattr(thing, '__code__'):
         # Python 3.x function code object
         code = thing.__code__
@@ -31,14 +70,14 @@ def determine_name(thing, name=None, use_repr=False):
             name = thing.__qualname__
         elif hasattr(thing, '__name__'):
             name = thing.__name__
-    if use_repr and name is None:
+    if try_repr and name is None:
         return repr(thing)
     return name
 
 class ExportError(NameError):
     pass
 
-def export(thing, name=None):
+def export(thing, name=None, *, doc=None):
     """ Add a function -- or any object, really, to the export list.
         Exported items will end up wih their names in the modules’
        `__all__` tuple, and will also be named in the list returned
@@ -75,13 +114,22 @@ def export(thing, name=None):
     if thing is __exports__:
         raise ExportError("can’t export the __export__ dict directly")
     
+    # If a “doc” argument was passed in, attempt to assign
+    # the __doc__ attribute accordingly on the item -- note
+    # that this won’t work for e.g. slotted, builtin, or C-API
+    # types that lack mutable __dict__ internals (or at least
+    # a settable __doc__ slot or established attribute).
+    if doc is not None:
+        try:
+            thing.__doc__ = doctrim(doc)
+        except AttributeError:
+            pass
+    
     # Stow the item in the global __exports__ dict:
     __exports__[name] = thing
     
     # Attempt to assign our name as a private attribute
-    # on the item -- this won’t work for e.g. slotted,
-    # builtin, or C-API types that lack mutable __dict__
-    # internals.
+    # on the item -- q.v. __doc__ note supra.
     if not hasattr(thing, '__export_name__'):
         try:
             thing.__export_name__ = name
@@ -126,9 +174,10 @@ class SimpleNamespace(object):
 
 
 # UTILITY FUNCTIONS: getattr(…) shortcuts:
-attr = lambda thing, *attrs: [getattr(thing, atx) for atx in attrs if getattr(thing, atx, None) is not None].pop()
+or_none = lambda thing, atx: getattr(thing, atx, None)
+attr = lambda thing, *attrs: ([or_none(thing, atx) for atx in attrs if or_none(thing, atx) is not None] or [None]).pop()
 getpyattr = lambda thing, atx, default_value=None: getattr(thing, '__%s__' % atx, default_value)
-pyattr = lambda thing, *attrs: [getpyattr(thing, atx) for atx in attrs if getpyattr(thing, atx, None) is not None].pop()
+pyattr = lambda thing, *attrs: ([getpyattr(thing, atx) for atx in attrs if getpyattr(thing, atx) is not None] or [None]).pop()
 
 @export
 def nameof(thing, fallback=''):
@@ -203,7 +252,7 @@ array_types = (numpy.ndarray,
                                      bytearray)
 bytes_types = (bytes, bytearray)
 string_types = six.string_types
-path_classes = tuplize(argparse.FileType, getattr(os, 'PathLike', None))
+path_classes = tuplize(argparse.FileType, or_none(os, 'PathLike'))
 path_types = string_types + bytes_types + path_classes
 file_types = (io.TextIOBase, io.BufferedIOBase, io.RawIOBase, io.IOBase)
 callable_types = (types.Function,
@@ -229,10 +278,16 @@ isbytes = lambda thing: graceful_issubclass(thing, bytes_types)
 isfunction = lambda thing: graceful_issubclass(thing, types.Function, types.Lambda)
 
 # THE MODULE EXPORTS:
-export(attr,            name='attr')
-export(getpyattr,       name='getpyattr')
-export(pyattr,          name='pyattr')
-export(types,           name='types')
+export(or_none,         name='or_none',     doc="or_none(thing, attribute) → shortcut for getattr(thing, attribute, None)")
+export(attr,            name='attr',        doc="Return the first existing attribute from a thing, given 1+ attribute names")
+export(getpyattr,       name='getpyattr',   doc="getpyattr(thing, attribute[, default]) → shortcut for getattr(thing, '__%s__' % attribute[, default])")
+export(pyattr,          name='pyattr',      doc="Return the first existing __special__ attribute from a thing, given 1+ attribute names")
+export(types,           name='types',       doc=""" Namespace containing type aliases from the `types` module,
+                                                    sans the irritating and lexically unnecessary “Type” suffix --
+                                                    e.g. `types.ModuleType` can be accessed as just `types.Module`
+                                                    from this namespace, which is less pointlessly redundant and
+                                                    aesthetically more pleasant, like definitively.
+                                                """)
 export(BUILTINS,        name='BUILTINS')
 
 export(haspyattr,       name='haspyattr')
@@ -287,6 +342,20 @@ def test():
     print("EXPORTS:")
     # print(__exports__)
     pprint(__exports__)
+    
+    print()
+    
+    import plistlib
+    dump = attr(plistlib, 'dumps', 'writePlistToString')
+    load = attr(plistlib, 'loads', 'readPlistFromString')
+    assert dump is not None
+    assert load is not None
+    wat = attr(plistlib, 'yo_dogg', 'wtf_hax')
+    assert wat is None
+    
+    # import doctest
+    # print(doctest._indent(types.__doc__))
+    print(types.__doc__)
 
 if __name__ == '__main__':
     test()
