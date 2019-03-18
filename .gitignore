@@ -49,7 +49,7 @@ siegfried/
 !.atom/*.less
 
 !.aptly.conf
-!.bash_history
+!.bash_profile
 !.gitattributes.global
 !.gitignore
 !.gitignore.global
