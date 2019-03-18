@@ -47,6 +47,7 @@ export EDITOR="${localbin}/emacs --no-window-system"
 export PGDATA="/usr/local/var/postgres/ost2"
 export XML_CATALOG_FILES="/usr/local/etc/xml/catalog"
 export JAVA_HOME=`/usr/libexec/java_home`
+export CLICOLOR_FORCE=1 # q.v. `man tree`
 
 alias l="${localbin}/gls --color=auto -sF"
 alias ll="${localbin}/gls --color=auto -lshF"
@@ -447,4 +448,5 @@ fi
 # q.v. https://help.github.com/articles/telling-git-about-your-gpg-key/
 export GPG_TTY=$(tty)
 
+eval "$(gdircolors ~/.dircolors/dircolors.256dark)"
 eval "$(direnv hook bash)"
