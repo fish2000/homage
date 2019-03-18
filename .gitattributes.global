@@ -1,0 +1,33 @@
+# Global Git Attributes
+*.py    diff=python
+*.pyx   diff=python
+*.pxd   diff=python
+*.pxi   diff=python
+*.pyi   diff=python
+*.pyc   binary
+*.pyo   binary
+
+*.f77   diff=fortran
+*.f90   diff=fortran
+
+*.cc    diff=cpp
+*.cpp   diff=cpp
+*.cxx   diff=cpp
+*.c++   diff=cpp
+*.hh    diff=cpp
+*.hpp   diff=cpp
+*.hxx   diff=cpp
+*.h++   diff=cpp
+*.ipp   diff=cpp
+*.inl   diff=cpp
+
+*.psd   binary
+
+*.cache     binary
+*.db        binary
+*.db3       binary
+*.sqlite    binary
+*.sqlite3   binary
+*.h5        binary
+*.hdf5      binary
+*.npy       binary

@@ -1,0 +1,14 @@
+[yapf]
+based_on_style = pep8
+spaces_before_comment = 1
+
+allow_multiline_lambdas = true                      # allow lambdas to be reformatted as multiline expressions
+allow_multi
+arithmetic_precedence_indication = false            # frankly this looks stupidly less clear than equal spacing
+
+split_before_dot = true                             # split before '.' if rewrapping a longer expression
+split_before_logical_operator = true                # prefer splitting before 'and' or 'or'
+split_before_named_assigns = true                   # split named assignments onto individual lines
+allow_split_before_default_or_named_assigns = true  # relatedly
+
+split_complex_comprehension = true                  # split fancy comprehensions and generator expressions

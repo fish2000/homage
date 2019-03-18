@@ -1,0 +1,16 @@
+.DS_Store
+.ds_store
+Thumbs.db
+thumbs.db
+ehthumbs.db
+*~
+a.out
+
+.direnv
+.envrc
+.gvoice
+.gnupg/
+.ssh/
+
+.bash_history
+.instagram-scraper.cfg

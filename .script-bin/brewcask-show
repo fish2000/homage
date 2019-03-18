@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#:  * `show` <Cask> [<Cask>...]:
+#:     Show the syntax-highlighted source of the specified Cask(s)
+
+function brew () {
+    "${HOMEBREW_PREFIX}/bin/brew" "$@"
+}
+
+pygmentize="/usr/local/bin/pygmentize"
+
+if [[ ! -x $pygmentize ]]; then
+    echo "* ERROR: The “pygmentize” command was not found"
+    echo "* ERROR: Try installing the Python “pygments” package"
+    return 1
+else
+    for argument in "$@"; do
+        brew cask cat "${argument}" | "${pygmentize}" -l ruby -O "style=paraiso-dark"
+        echo ""
+    done
+fi

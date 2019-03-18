@@ -1,0 +1,4 @@
+cython/
+*.sqlite
+*.sqlite3
+*.db

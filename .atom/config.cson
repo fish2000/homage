@@ -1,0 +1,58 @@
+"*":
+  "autocomplete-python":
+    useKite: false
+  core:
+    allowPendingPaneItems: false
+    closeDeletedFileTabs: true
+    customFileTypes:
+      "source.ini": [
+        ".buckconfig"
+        ".hgrc"
+      ]
+      "source.json": [
+        ".arcconfig"
+        "BUCK.autodeps"
+      ]
+      "source.python": [
+        "BUCK"
+      ]
+    disabledPackages: [
+      "json-schema"
+      "json-colorer"
+      "colorful-json"
+      "language-ansi"
+      "swift-debugger"
+    ]
+    openEmptyEditorOnStart: false
+    projectHome: "/Users/fish/Dropbox"
+    reopenProjectMenuCount: 30
+    restorePreviousWindowsOnStart: "always"
+    telemetryConsent: "no"
+    themes: [
+      "one-dark-ui"
+      "atom-dark-syntax"
+    ]
+    titleBar: "custom-inset"
+    warnOnLargeFileLimit: 5
+  editor:
+    fontFamily: "Consolas, Menlo, DejaVu Sans Mono, monospace"
+    fontSize: 13
+    invisibles:
+      cr: "ø"
+      eol: "¶"
+      tab: "¬"
+    showIndentGuide: true
+    showInvisibles: true
+    softWrap: true
+    softWrapHangingIndent: 2
+    tabLength: 4
+  "exception-reporting":
+    userId: "87680594-2ed6-473f-8a21-35fad2216ace"
+  welcome:
+    showOnStartup: false
+".json.source":
+  editor:
+    scrollPastEnd: true
+    showIndentGuide: true
+    showInvisibles: true
+    tabLength: 4

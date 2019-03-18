@@ -1,0 +1,13 @@
+{
+    "autocomplete-parameters": "true",
+    "pref-format": "1",
+    "allow-anonymous-usage-tracking": false,
+    "edit-mode": "default",
+    
+    "languages": {
+        "IPython": {
+            "path": "/usr/local/bin"
+        }
+    } 
+    
+}

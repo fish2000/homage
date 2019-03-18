@@ -1,0 +1,1 @@
+/Users/fish/.config/bpython/config

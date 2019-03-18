@@ -1,0 +1,2 @@
+
+command script import "~/Library/Application Support/Realm/rlm_lldb.py" --allow-reload
