@@ -298,8 +298,8 @@ isnumber = lambda thing: issubclass(thing, numeric_types)
 isarray = lambda thing: graceful_issubclass(thing, array_types)
 isstring = lambda thing: graceful_issubclass(thing, string_types)
 isbytes = lambda thing: graceful_issubclass(thing, bytes_types)
-isfunction = lambda thing: graceful_issubclass(thing, types.Function, types.Lambda) or callable(thing)
-islambda = lambda thing: pyattr('name', 'qualname') == λ
+isfunction = lambda thing: callable(thing) or graceful_issubclass(thing, types.Function, types.Lambda)
+islambda = lambda thing: pyattr(thing, 'name', 'qualname') == λ
 
 # THE MODULE EXPORTS:
 export(λ,               name='λ')
