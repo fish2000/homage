@@ -9,17 +9,17 @@
 #
 """
 Usage:
-  sigbytes.py INFILE... [-o OUTFILE]
-                        [-s SIZE]
-                        [-c | --clean]
-                        [-V | --verbose]
+  sigbytes.py INFILE...       [-o OUTFILE]
+                              [-s SIZE]
+                              [-c | --clean]
+                              [-V | --verbose]
   
-  sigbytes.py            -h | --help |
-                         -v | --version
+  sigbytes.py                  -h | --help |
+                               -v | --version
     
 Options:
   -o OUTFILE --output=OUTFILE       specify output file [default: stdout].
-  -s SIZE    --size=SIZE            specify size of bytes to read [default: 8].
+  -s SIZE --size=SIZE               specify size of bytes to read [default: 8].
   -c --clean                        clean first, strip out the slash-x punctuation.
   -V --verbose                      print verbose output.
   -h --help                         show this text.
@@ -46,7 +46,7 @@ def cli(argv=None):
     
     ipths = (expanduser(pth) for pth in arguments.get('INFILE'))
     opth = expanduser(arguments.get('--output'))
-    siz = int(arguments.get('-s', 8))
+    siz = int(arguments.get('--size', 8))
     clean = bool(arguments.get('--clean'))
     verbose = bool(arguments.get('--verbose'))
     
