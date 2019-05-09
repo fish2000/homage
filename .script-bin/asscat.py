@@ -409,9 +409,9 @@ def cli(argv=None, debug=False):
     # If we're just showing lists of valid args, just do that -- quickly call the
     # relevant function, and exit immediately:
     
-    for key, function in keyed.functions.items():
+    for key in keyed.functions.keys():
         if bool(arguments.pop(key)):
-            function()
+            keyed.functions[key]()
             raise DisplayAndExit()
     
     # Set up values and defaults for the remaining standard-execution arguments:
