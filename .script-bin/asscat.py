@@ -109,11 +109,23 @@ def interpol(name):
     """ Return a PIL/Pillow image interpolation method constant by name """
     return getattr(Image, name.upper())
 
+# q.v. PIL.Image constants of the same (yet uppercased) names:
+interpol.methods = frozenset({
+                        "box",
+                        "bilinear", "bicubic",
+                        "hamming", "lanczos",
+                        "nearest" })
+
+interpol.default = "bicubic"
+
+# for our purposes a “size” is one of these:
+sizes = frozenset({ '1x', '2x', '3x' })
+
 def sizer(factor=2):
     """ Return a lambda suitable for applying to an image size tuple """
     return lambda x: int(factor * x)
 
-def scaler(image, factor=2, interpolation="nearest", verbose=False):
+def scaler(image, factor=2, interpolation=interpol.default, verbose=False):
     """ Scale an image by a numeric (int or float) factor """
     width, height = image.size
     dim_scaler = sizer(factor)
@@ -125,16 +137,6 @@ def scaler(image, factor=2, interpolation="nearest", verbose=False):
               factor,
               interpolation))
     return image.resize(new_size, interpol(interpolation))
-
-# for our purposes a “size” is one of these:
-sizes = frozenset({ '1x', '2x', '3x' })
-
-# q.v. PIL.Image constants of the same (yet uppercased) names:
-interpolation_methods = frozenset({
-                          "box",
-                          "bilinear", "bicubic",
-                          "hamming", "lanczos",
-                          "nearest" })
 
 def intify(size):
     """ Convert a size descriptor (e.g. 1x, 2x, 3x) to an integer """
@@ -173,7 +175,7 @@ save.options  = { 'compress_level' : 9,
                         'optimize' : True,
                           'format' : 'png' }
 
-def generate(image, size, interpolation="nearest", verbose=False):
+def generate(image, size, interpolation=interpol.default, verbose=False):
     """ Generate a full set of sized images – 1x/2x/3x – from a source
         image, whose scale factor is specified by a size descriptor
     """
@@ -226,20 +228,20 @@ def show_interpolation_methods():
         before exiting. These method names come from within Pillow,
         q.v. https://git.io/fhFxV
     """
-    howmany = len(interpolation_methods)
+    howmany = len(interpol.methods)
     print("» TOTAL VALID INTERPOLATION-MODE ARGUMENTS: %i" % howmany)
     print("• N.B. modes may be given in lowercase, UPPERCASE or MixedCase;")
     print("• For the (literal) source of these, q.v. https://git.io/fhFxV")
     print()
     by_constant = {}
-    for method_name in interpolation_methods:
+    for method_name in interpol.methods:
         pil_constant = interpol(method_name)
         by_constant[pil_constant] = method_name
     for pil_constant in sorted(by_constant.keys()):
         method_name = by_constant[pil_constant]
         print("» ∞(%s) § “%s” %s" % (pil_constant,
                                      method_name.upper(),
-                                     method_name == 'bicubic' and '» (default)' or ''))
+                                     method_name == interpol.default and '» (default)' or ''))
 
 @keyed
 def show_save_options():
@@ -251,9 +253,6 @@ def show_save_options():
     print()
     print(dictionary_to_json(save.options))
 
-# tuple of regexes for matching our size descriptors in filenames:
-size_matchers = tuple(re.compile(r"@%s" % size) for size in sorted(sizes))
-
 def filename_with_size(filename, size):
     """ Compute an output filename for a size descriptor, using
         a given size descriptor and a source filename, with the
@@ -261,7 +260,7 @@ def filename_with_size(filename, size):
     """
     base, ext = os.path.splitext(filename)
     newname = base
-    for matcher in size_matchers:
+    for matcher in filename_with_size.matchers:
         # … This, obviously, would be more efficient to use
         # a single, properly-generalized regex – but there
         # are only so many premature operations one can cram
@@ -273,6 +272,9 @@ def filename_with_size(filename, size):
             break
     newname += "@%s.%s" % (size, save.options.get('format'))
     return newname
+
+# tuple of regexes for matching our size descriptors in filenames:
+filename_with_size.matchers = tuple(re.compile(r"@%s" % size) for size in sorted(sizes))
 
 def output_path_with_size(input_path, output_dir, size):
     """ Compute a destination image filename, including size, using the
@@ -364,7 +366,7 @@ def write_to_path(data, pth, relative_to=None, verbose=False):
                                           os.path.relpath(pth,
                                                           start=start)))
 
-VERSION = u'asscat.py 0.4.6 © 2016-2019 Alexander Böhn / OST, LLC'
+VERSION = u'asscat.py 0.4.8 © 2016-2019 Alexander Böhn / OST, LLC'
 
 def cli(argv=None, debug=False):
     """ The primary entry point for the asscat.py command-line tool.
@@ -418,7 +420,7 @@ def cli(argv=None, debug=False):
     
     ipths = (os.path.expanduser(pth) for pth in sorted(arguments.get('SOURCE', [])))
     opth = str(arguments.get('--destination', '$CWD'))
-    interpolation = str(arguments.get('--interpolation', "bicubic")).lower()
+    interpolation = str(arguments.get('--interpolation', interpol.default)).lower()
     siz = str(arguments.get('--size', "3x")).lower()
     catalog_flag = bool(arguments.get('--catalog-directory'))
     catalog_name = unicode(arguments.get('--catalog', u"«Assets»")) # unicode == str on PY3
@@ -458,7 +460,7 @@ def cli(argv=None, debug=False):
     if not os.path.isdir(opth):
         raise ArgumentError("Not a directory: %s" % opth)
     
-    if not interpolation in interpolation_methods:
+    if not interpolation in interpol.methods:
         raise ArgumentError("Unknown interpolation method: %s" % interpolation)
     
     if not siz in sizes:
