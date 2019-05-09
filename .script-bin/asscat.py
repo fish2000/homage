@@ -23,6 +23,7 @@ Usage:
                       [   -V            |  --verbose                ]
   asscat.py               -S            |  --show-valid-sizes
   asscat.py               -I            |  --show-interpolation-methods
+  asscat.py               -O            |  --show-save-options
   asscat.py               -h            |  --help
   asscat.py               -v            |  --version
   
@@ -55,6 +56,8 @@ Options:
   -S --show-valid-sizes                 exit after showing valid “size” arguments.
   -I --show-interpolation-methods       exit after showing possible interpolation-
                                         method arguments.
+  -O --show-save-options                exit after showing the output image options
+                                        as passed to ‘PIL.Image.Image.save(…)’.
   -h --help                             exit after showing this help text.
   -v --version                          exit after showing this programs’ version.
   
@@ -144,11 +147,6 @@ def scale(size, denominator_size):
         return intify(size)
     return float(intify(size)) / float(denominator)
 
-# PIL options for image file output:
-save_options  = { 'compress_level' : 9,
-                        'optimize' : True,
-                          'format' : 'png' }
-
 def ensure_path_is_valid(pth):
     """ Raise an exception if we can’t write to the specified path """
     if os.path.exists(pth):
@@ -162,13 +160,18 @@ def ensure_path_is_valid(pth):
 def save(image, pth, verbose=False):
     """ Save a PIL image object to a specified path """
     ensure_path_is_valid(pth)
-    image.save(pth, **save_options)
+    image.save(pth, **save.options)
     image_file = os.path.basename(pth)
     if verbose:
         statbuf = os.lstat(pth)
         print("» Wrote %i bytes to image file %s" % (statbuf.st_size,
                                                           image_file))
     return image_file
+
+# PIL options for image file output:
+save.options  = { 'compress_level' : 9,
+                        'optimize' : True,
+                          'format' : 'png' }
 
 def generate(image, size, interpolation="nearest", verbose=False):
     """ Generate a full set of sized images – 1x/2x/3x – from a source
@@ -183,6 +186,7 @@ def generate(image, size, interpolation="nearest", verbose=False):
                                       factor=scale(new_size, size))
     return out
 
+# Regular expression matching function-name underscores:
 underscore_re = re.compile(r'_')
 
 def keyed(function):
@@ -200,25 +204,26 @@ def keyed(function):
         code = function.func_code
     if code is not None:
         if hasattr(code, 'co_name'):
-            dashed = re.subn(underscore_re, '-', code.co_name)
-            if dashed:
-                function.key = "--%s" % dashed[0]
+            dashed = underscore_re.subn('-', code.co_name)
+            function.key = "--%s" % (dashed and dashed[0] or code.co_name)
+            keyed.functions[function.key] = function
     return function
+
+# Dictionary matching keyed function names to display-and-exit functions:
+keyed.functions = {}
 
 @keyed
 def show_valid_sizes():
-    """ Print a list of the valid sizes to STDOUT, and then exit """
+    """ Print a list of the valid sizes to STDOUT before exiting """
     print("» TOTAL VALID SIZE ARGUMENTS: %i" % len(sizes))
     print()
     for size in sorted(sizes):
         print("» “%s” – ∫cale ƒactor %i" % (size, intify(size)))
-    print()
-    raise DisplayAndExit()
 
 @keyed
 def show_interpolation_methods():
-    """ Print a list of the valid interpolation methods to STDOUT,
-        and then exit. These method names come from within Pillow,
+    """ Print a list of the valid interpolation methods to STDOUT
+        before exiting. These method names come from within Pillow,
         q.v. https://git.io/fhFxV
     """
     howmany = len(interpolation_methods)
@@ -235,8 +240,16 @@ def show_interpolation_methods():
         print("» ∞(%s) § “%s” %s" % (pil_constant,
                                      method_name.upper(),
                                      method_name == 'bicubic' and '» (default)' or ''))
+
+@keyed
+def show_save_options():
+    """ Print the output image `save.options` dictionary, as passed to
+       ‘PIL.Image.Image.save(…)’ internally, formatted in a human-readable
+        fashion, before exiting.
+    """
+    print("» OUTPUT IMAGE SAVE OPTIONS:")
     print()
-    raise DisplayAndExit()
+    print(dictionary_to_json(save.options))
 
 # tuple of regexes for matching our size descriptors in filenames:
 size_matchers = tuple(re.compile(r"@%s" % size) for size in sorted(sizes))
@@ -244,7 +257,7 @@ size_matchers = tuple(re.compile(r"@%s" % size) for size in sorted(sizes))
 def filename_with_size(filename, size):
     """ Compute an output filename for a size descriptor, using
         a given size descriptor and a source filename, with the
-        format specified in the `save_options` global dictionary
+        format specified in the `save.options` settings dictionary
     """
     base, ext = os.path.splitext(filename)
     newname = base
@@ -258,7 +271,7 @@ def filename_with_size(filename, size):
         if matcher.search(base):
             newname = matcher.sub("", base)
             break
-    newname += "@%s.%s" % (size, save_options.get('format'))
+    newname += "@%s.%s" % (size, save.options.get('format'))
     return newname
 
 def output_path_with_size(input_path, output_dir, size):
@@ -366,7 +379,7 @@ def cli(argv=None, debug=False):
           as per Xcode’s finicky preferences.
         
         * Running asscat.py in verbose mode writes a bunch of messages
-          to stdout; without specifying verbose mode, a successful run
+          to STDOUT; without specifying verbose mode, a successful run
           won’t write anything whatsoever to the console. Problematic
           command-line options or runtime issues will throw exceptions,
           resulting in termination since no attempts are made to handle
@@ -391,16 +404,15 @@ def cli(argv=None, debug=False):
         print()
         print("» ARGUMENTS (post-Docopt):")
         pprint(arguments)
-        print()
         raise DebugExit()
     
-    # If we're just showing lists of valid args, do that first and exit immediately:
+    # If we're just showing lists of valid args, just do that -- quickly call the
+    # relevant function, and exit immediately:
     
-    if bool(arguments.get(show_valid_sizes.key)):
-        show_valid_sizes() # Raises a SystemExit descendant
-    
-    if bool(arguments.get(show_interpolation_methods.key)):
-        show_interpolation_methods() # Raises a SystemExit descendant
+    for key, function in keyed.functions.items():
+        if bool(arguments.pop(key)):
+            function()
+            raise DisplayAndExit()
     
     # Set up values and defaults for the remaining standard-execution arguments:
     
@@ -515,7 +527,7 @@ def cli(argv=None, debug=False):
             print("» Created asset catalog root folder %s" % opth)
     
     if verbose:
-        print("» Writing %s output images to %s…" % (len(inputs) * 3, opth))
+        print("» Writing %s output images to %s…" % (len(inputs) * len(sizes), opth))
     
     # This is the primary output loop, iterating over the generated images:
     
@@ -603,9 +615,11 @@ def main(debug=False):
         raise
     except DebugExit:
         # This is when we’re printing debug argument values:
+        print()
         raise
     except DisplayAndExit:
         # This is when we’re printing lists of valid stuff:
+        print()
         raise
     except Exception:
         print("[error] exception during execution:",
