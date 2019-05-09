@@ -7,7 +7,7 @@
 #       For, like, tests and stuff
 #       (c) 2015 Alexander Bohn, All Rights Reserved
 #
-"""
+u"""
 Usage:
   sigbytes.py INFILE...  [ -o OUTFILE   | --output=OUTFILE  ]
                          [ -s SIZE      | --size=SIZE       ]
@@ -30,19 +30,23 @@ Options:
 
 """
 
-from __future__ import print_function
+from __future__ import print_function, unicode_literals
 from collections import OrderedDict
-from os.path import exists, isdir, dirname, expanduser
-from docopt import docopt
-import sys, re
+from docopt import docopt, DocoptExit
+import sys, re, os
+
+class DebugExit(SystemExit):
+    """ A signal to the caller to exit cleanly """
+    pass
 
 class ArgumentError(ValueError):
     """ An issue with the supplied arguments """
     pass
 
+DEBUG = bool(os.environ.get('DEBUG', False))
 VERSION = u'sigbytes.py 0.2.0 © 2015-2019 Alexander Böhn / OST, LLC'
 
-def cli(argv=None):
+def cli(argv=None, debug=False):
     if not argv:
         argv = sys.argv
     
@@ -50,15 +54,22 @@ def cli(argv=None):
                                 help=True,
                                 version=VERSION)
     
-    # print(argv)
-    # print(arguments)
-    # sys.exit()
+    if debug:
+        from pprint import pprint
+        print()
+        print("» ARGV:")
+        pprint(argv)
+        print()
+        print("» ARGUMENTS (post-Docopt):")
+        pprint(arguments)
+        print()
+        raise DebugExit()
     
     if not len(arguments.get('INFILE')) > 0:
         raise ArgumentError("No input files")
     
-    ipths = (expanduser(pth) for pth in arguments.get('INFILE'))
-    opth = expanduser(arguments.get('--output'))
+    ipths = (os.path.expanduser(pth) for pth in arguments.get('INFILE'))
+    opth = os.path.expanduser(arguments.get('--output'))
     siz = int(arguments.get('--size', 8))
     clean = bool(arguments.get('--clean'))
     verbose = bool(arguments.get('--verbose'))
@@ -79,7 +90,7 @@ def cli(argv=None):
     
     filehandle = None
     if opth != 'stdout':
-        if exists(opth) or not isdir(dirname(opth)):
+        if os.path.exists(opth) or not os.path.isdir(dirname(opth)):
             raise ArgumentError("Bad output file")
         else:
             filehandle = open(opth, 'wb')
@@ -101,9 +112,15 @@ def cli(argv=None):
     elif verbose:
         print("")
 
-def main():
+def main(debug=False):
     try:
-        cli(sys.argv)
+        cli(sys.argv, debug=debug)
+    except DebugExit:
+        # This is when we’re printing debug argument values:
+        raise
+    except DocoptExit:
+        # This is how default docopt usage gets printed:
+        raise
     except ArgumentError:
         print("[error] bad arguments passed:",
               file=sys.stderr)
@@ -111,4 +128,4 @@ def main():
     sys.exit(0)
 
 if __name__ == '__main__':
-    main()
+    main(debug=DEBUG)
