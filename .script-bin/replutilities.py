@@ -243,13 +243,19 @@ isiterable = lambda thing: anypyattrs(thing, 'iter', 'getitem')
 @export
 def graceful_issubclass(thing, *cls_or_tuple):
     """ A wrapper for `issubclass()` that tries to work with you. """
-    if len(cls_or_tuple) == 1:
-        cls_or_tuple = cls_or_tuple[0]
+    length = 0
+    try:
+        length = len(cls_or_tuple)
+    except TypeError:
+        pass
     else:
-        cls_or_tuple = tuple(item for item in cls_or_tuple if item is not None)
-    if (not isinstance(cls_or_tuple, (type, tuple))) \
-        and isiterable(cls_or_tuple):
-        cls_or_tuple = tuple(cls_or_tuple)
+        if length == 1:
+            cls_or_tuple = cls_or_tuple[0]
+        else:
+            cls_or_tuple = tuple(item for item in cls_or_tuple if item is not None)
+        if (not isinstance(cls_or_tuple, (type, tuple))) \
+            and isiterable(cls_or_tuple):
+            cls_or_tuple = tuple(cls_or_tuple)
     try:
         return issubclass(thing, cls_or_tuple)
     except TypeError:
@@ -295,17 +301,19 @@ ispath = lambda thing: graceful_issubclass(thing, path_types) or haspyattr(thing
 isvalidpath = lambda thing: ispath(thing) and os.path.exists(thing)
 
 isnumber = lambda thing: issubclass(thing, numeric_types)
+isnumeric = lambda thing: issubclass(thing, numeric_types)
 isarray = lambda thing: graceful_issubclass(thing, array_types)
 isstring = lambda thing: graceful_issubclass(thing, string_types)
 isbytes = lambda thing: graceful_issubclass(thing, bytes_types)
-isfunction = lambda thing: callable(thing) or graceful_issubclass(thing, types.Function, types.Lambda)
+isfunction = lambda thing: graceful_issubclass(thing, types.Function, types.Lambda) or callable(thing)
 islambda = lambda thing: pyattr(thing, 'name', 'qualname') == λ
 
 # THE MODULE EXPORTS:
 export(λ,               name='λ')
 export(or_none,         name='or_none',     doc="or_none(thing, attribute) → shortcut for getattr(thing, attribute, None)")
-export(attr,            name='attr',        doc="Return the first existing attribute from a thing, given 1+ attribute names")
 export(getpyattr,       name='getpyattr',   doc="getpyattr(thing, attribute[, default]) → shortcut for getattr(thing, '__%s__' % attribute[, default])")
+export(accessor,        name='accessor',    doc="accessor(func, thing, *attributes) → return the first non-None value had by successively applying func(thing, attribute)")
+export(attr,            name='attr',        doc="Return the first existing attribute from a thing, given 1+ attribute names")
 export(pyattr,          name='pyattr',      doc="Return the first existing __special__ attribute from a thing, given 1+ attribute names")
 export(types,           name='types',       doc=""" Namespace containing type aliases from the `types` module,
                                                     sans the irritating and lexically unnecessary “Type” suffix --
@@ -342,6 +350,7 @@ export(ispath,          name='ispath')
 export(isvalidpath,     name='isvalidpath')
 
 export(isnumber,        name='isnumber')
+export(isnumeric,       name='isnumeric')
 export(isarray,         name='isarray')
 export(isstring,        name='isstring')
 export(isbytes,         name='isbytes')
@@ -382,6 +391,30 @@ def test():
     assert load is not None
     wat = attr(plistlib, 'yo_dogg', 'wtf_hax')
     assert wat is None
+    
+    assert graceful_issubclass(int, int)
+    assert isnumeric(int)
+    assert isarray(array.array)
+    assert isstring(str)
+    assert isstring("")
+    assert isbytes(bytes)
+    assert isbytes(bytearray)
+    assert isbytes(b"")
+    assert islambda(lambda: None)
+    assert isfunction(lambda: None)
+    assert isfunction(export)
+    # assert not isfunction(SimpleNamespace)
+    
+    lammy = lambda: None
+    print("» lambda name = %s" % lammy.__name__)
+    print("» lambda name = %s" % pyattr(lammy, 'name', 'qualname'))
+    lammy_name = lammy.__name__
+    lammy_pyattr_name = pyattr(lammy, 'name', 'qualname')
+    lambda_name = λ
+    assert lammy_name == lammy_pyattr_name
+    assert lammy_name == lambda_name
+    assert lammy_pyattr_name == lambda_name
+    print()
     
     # import doctest
     # print(doctest._indent(types.__doc__))
