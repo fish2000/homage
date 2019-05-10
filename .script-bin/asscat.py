@@ -188,9 +188,6 @@ def generate(image, size, interpolation=interpol.default, verbose=False):
                                       factor=scale(new_size, size))
     return out
 
-# Regular expression matching function-name underscores:
-underscore_re = re.compile(r'_')
-
 def keyed(function):
     """ Assign an attribute “key” to a target function derived
         from that functions’ name – if the function has the name
@@ -206,13 +203,16 @@ def keyed(function):
         code = function.func_code
     if code is not None:
         if hasattr(code, 'co_name'):
-            dashed = underscore_re.subn('-', code.co_name)
+            dashed = keyed.underscore_re.subn('-', code.co_name)
             function.key = "--%s" % (dashed and dashed[0] or code.co_name)
             keyed.functions[function.key] = function
     return function
 
 # Dictionary matching keyed function names to display-and-exit functions:
 keyed.functions = {}
+
+# Regular expression matching function-name underscores:
+keyed.underscore_re = re.compile(r'_')
 
 @keyed
 def show_valid_sizes():
