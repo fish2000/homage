@@ -105,25 +105,29 @@ class OptionsWarning(RuntimeWarning):
     """ A potential issue with the supplied arguments """
     pass
 
-def interpol(name):
-    """ Return a PIL/Pillow image interpolation method constant by name """
-    return getattr(Image, name.upper())
-
-# q.v. PIL.Image constants of the same (yet uppercased) names:
-interpol.methods = frozenset({
-                        "box",
-                        "bilinear", "bicubic",
-                        "hamming", "lanczos",
-                        "nearest" })
-
-interpol.default = "bicubic"
-
 # for our purposes a “size” is one of these:
 sizes = frozenset({ '1x', '2x', '3x' })
 
 def sizer(factor=2):
     """ Return a lambda suitable for applying to an image size tuple """
     return lambda x: int(factor * x)
+
+def interpol(name):
+    """ Return a PIL/Pillow image interpolation method constant by name """
+    return getattr(Image, name.upper())
+
+# q.v. PIL.Image module constants with these same (albiet uppercased) names,
+# https://git.io/fhFxV supra.:
+interpol.methods = frozenset({
+                        "nearest", "none",
+                        "box",
+                        "bilinear", "linear",
+                        "hamming",
+                        "bicubic", "cubic",
+                        "lanczos", "antialias" })
+
+# the default interpolation method:
+interpol.default = "bicubic"
 
 def scaler(image, factor=2, interpolation=interpol.default, verbose=False):
     """ Scale an image by a numeric (int or float) factor """
@@ -149,6 +153,19 @@ def scale(size, denominator_size):
         return intify(size)
     return float(intify(size)) / float(denominator)
 
+def generate(image, size, interpolation=interpol.default, verbose=False):
+    """ Generate a full set of sized images – 1x/2x/3x – from a source
+        image, whose scale factor is specified by a size descriptor
+    """
+    target_sizes = sizes - { size }
+    out = { size : image }
+    image.load()
+    for new_size in sorted(target_sizes):
+        out[new_size] = scaler(image, verbose=verbose,
+                                      interpolation=interpolation,
+                                      factor=scale(new_size, size))
+    return out
+
 def ensure_path_is_valid(pth):
     """ Raise an exception if we can’t write to the specified path """
     if os.path.exists(pth):
@@ -170,23 +187,19 @@ def save(image, pth, verbose=False):
                                                           image_file))
     return image_file
 
-# PIL options for image file output:
+# PIL Image.save(…) arguments -- options specifying image file output:
 save.options  = { 'compress_level' : 9,
                         'optimize' : True,
                           'format' : 'png' }
 
-def generate(image, size, interpolation=interpol.default, verbose=False):
-    """ Generate a full set of sized images – 1x/2x/3x – from a source
-        image, whose scale factor is specified by a size descriptor
+def dictionary_to_json(dictionary):
+    """ Encode a Python dict as a JSON dictionary, using the same
+        formatting properties used by Xcode in Apple’s asset catalog
+        metadata JSON files
     """
-    target_sizes = sizes - { size }
-    out = { size : image }
-    image.load()
-    for new_size in sorted(target_sizes):
-        out[new_size] = scaler(image, verbose=verbose,
-                                      interpolation=interpolation,
-                                      factor=scale(new_size, size))
-    return out
+    return json.dumps(dictionary, indent=4,
+                                  separators=(',', ' : '),
+                                  sort_keys=True)
 
 def keyed(function):
     """ Assign an attribute “key” to a target function derived
@@ -208,11 +221,11 @@ def keyed(function):
             keyed.functions[function.key] = function
     return function
 
-# Dictionary matching keyed function names to display-and-exit functions:
-keyed.functions = {}
-
 # Regular expression matching function-name underscores:
 keyed.underscore_re = re.compile(r'_')
+
+# Dictionary matching keyed function names to display-and-exit functions:
+keyed.functions = {}
 
 @keyed
 def show_valid_sizes():
@@ -233,12 +246,11 @@ def show_interpolation_methods():
     print("• N.B. modes may be given in lowercase, UPPERCASE or MixedCase;")
     print("• For the (literal) source of these, q.v. https://git.io/fhFxV")
     print()
-    by_constant = {}
+    by_index = {}
     for method_name in interpol.methods:
+        by_index["%i:%s" % (interpol(method_name), method_name)] = method_name
+    for idx, method_name in sorted(by_index.items()):
         pil_constant = interpol(method_name)
-        by_constant[pil_constant] = method_name
-    for pil_constant in sorted(by_constant.keys()):
-        method_name = by_constant[pil_constant]
         print("» ∞(%s) § “%s” %s" % (pil_constant,
                                      method_name.upper(),
                                      method_name == interpol.default and '» (default)' or ''))
@@ -274,7 +286,8 @@ def filename_with_size(filename, size):
     return newname
 
 # tuple of regexes for matching our size descriptors in filenames:
-filename_with_size.matchers = tuple(re.compile(r"@%s" % size) for size in sorted(sizes))
+filename_with_size.matchers = tuple(re.compile(r"@%s" % size) \
+                                                    for size in sorted(sizes))
 
 def output_path_with_size(input_path, output_dir, size):
     """ Compute a destination image filename, including size, using the
@@ -296,15 +309,6 @@ def imageset_folder_name(input_path):
     """ Derive the name for an imageset directory from an image path name """
     return "%s.imageset" % os.path.splitext(
                            os.path.basename(input_path))[0]
-
-def dictionary_to_json(dictionary):
-    """ Encode a Python dict as a JSON dictionary, using the same
-        formatting properties used by Xcode in Apple’s asset catalog
-        metadata JSON files
-    """
-    return json.dumps(dictionary, indent=4,
-                                  separators=(',', ' : '),
-                                  sort_keys=True)
 
 # the “info” dictionary used throughout all JSON metadata:
 JSON_INFO = { 'version' : 1,
@@ -337,21 +341,25 @@ def namelist_to_json(namelist, verbose=False):
     return dictionary_to_json({ 'images' : outlist,
                                 'info'   : JSON_INFO })
 
-UTF8_ENCODING = 'UTF-8'
-
-def utf8_encode(source):
-    """ Encode a source as bytes using the UTF-8 codec """
-    if PY3:
+if PY3:
+    def utf8_encode(source):
+        """ Encode a source as a UTF-8 bytes object using Python 3 semantics """
         if type(source) is bytes:
             return source
         elif type(source) is bytearray:
             return bytes(source)
-        return bytes(source, encoding=UTF8_ENCODING)
-    if type(source) is unicode:
-        return source.encode(UTF8_ENCODING)
-    elif type(source) is bytearray:
-        return str(source)
-    return source
+        return bytes(source, encoding=utf8_encode.encoding)
+
+else:
+    def utf8_encode(source):
+        """ Encode a source as a UTF-8 bytestring using Python 2 semantics """
+        if type(source) is unicode:
+            return source.encode(utf8_encode.encoding)
+        elif type(source) is bytearray:
+            return str(source)
+        return source
+
+utf8_encode.encoding = 'UTF-8'
 
 def write_to_path(data, pth, relative_to=None, verbose=False):
     """ Write data to a new file using a context-managed handle """
