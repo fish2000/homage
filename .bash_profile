@@ -214,39 +214,6 @@ function extendpath () {
     fi
 }
 
-# bpy2config="${homedir}/.config/bpython/config.py2"
-# bpy3config="${homedir}/.config/bpython/config.py3"
-# ptpyconfig="${homedir}/.config/ptpython"
-
-# function bpython_run () {
-#     executable="${1:?python interpreter expected}"
-#     configfile="${2:?bpython configfile expected}"
-#     scriptbin="${homedir}/.script-bin"
-#     replenv="${scriptbin}/repl-bpython.py"
-#     shift 2 # restore original $@ argument set
-#     if [[ ! -e $executable ]]; then
-#         executable="$(which ${executable})"
-#     fi
-#     if [[ ! -x $executable ]]; then
-#         echo "» [ERROR] bad python interpreter: ${executable}"
-#         return 1
-#     fi
-#     if [[ ! -f $configfile ]]; then
-#         echo "» [ERROR] missing bpython config: ${configfile}"
-#         return 1
-#     fi
-#     if [[ $PYTHONPATH ]]; then
-#         pythonpath="${PYTHONPATH}"
-#         extendpath "$(pwd)" pythonpath 0
-#     else
-#         pythonpath="$(pwd)"
-#     fi
-#     extendpath ${scriptbin} pythonpath 0
-#     PYTHONPATH=${pythonpath} ${executable} -m bpython \
-#                                            --config=${configfile} \
-#                                            -i ${replenv} $@
-# }
-
 configdir="${homedir}/.config"
 scriptbin="${homedir}/.script-bin"
 
