@@ -275,15 +275,6 @@ def show_save_options():
     print()
     print(to_json(save.options))
 
-# help_doublequote_re = (re.compile(r"[“”]", re.MULTILINE), '"')
-# help_singlequote_re = (re.compile(r"[‘’]", re.MULTILINE), "'")
-# help_euroquote_re = (re.compile(r"[«»]", re.MULTILINE), ":")
-# help_elipses_re = (re.compile(r"…", re.MULTILINE), "...")
-# help_o_umlaut_re = (re.compile(r"ö", re.MULTILINE), "o")
-# help_copyright_re = (re.compile(r"©", re.MULTILINE), "(c)")
-
-regex = lambda string: re.compile(string, re.MULTILINE)
-
 def sanitize(text):
     """ Remove specific unicode strings, in favor of ASCII-friendly versions """
     sanitized = unicode(text)
@@ -291,17 +282,18 @@ def sanitize(text):
         sanitized, _ = sanitizer.subn(substitution, sanitized)
     return sanitized
 
-# sanitize.sanitizers = (help_doublequote_re, help_singlequote_re, help_euroquote_re,
-#                        help_elipses_re, help_o_umlaut_re, help_copyright_re)
+# Regular expression compiler shortcut:
+regex = lambda string: re.compile(string, re.MULTILINE)
 
+# Sanitization regexes and their replacement strings:
 sanitize.sanitizers = (
     (regex(r"[“”]"), '"'),
     (regex(r"[‘’]"), "'"),
     (regex(r"[«»]"), ":"),
     (regex(r"…"), "..."),
     (regex(r"ö"), "o"),
-    (regex(r"©"), "(c)")
-)
+    (regex(r"©"), "(c)"),
+    (regex(r"—"), "-"))
 
 @keyed
 def show_sanitized_help():
