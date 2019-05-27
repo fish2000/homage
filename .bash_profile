@@ -16,15 +16,16 @@ homedir="/Users/${USER}"
 bashconfig="${homedir}/.bash_config.d"
 nodemodules="${homedir}/.node_modules"
 localbin="/usr/local/bin"
+localopt="/usr/local/opt"
 
 # the path of the righteous man is beset on all sides by evil
 MINIMAL_PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/X11/bin"
 export ORIGINAL_PATH="${PATH}"
 export PATH="\
-/usr/local/opt/python/libexec/bin:\
-/usr/local/opt/ruby/bin:\
+${localopt}/python/libexec/bin:\
+${localopt}/ruby/bin:\
+${localopt}/go/bin:\
 ${homedir}/.script-bin:\
-${homedir}/go/bin:\
 ${localbin}:\
 /usr/local/sbin:\
 ${MINIMAL_PATH}"
@@ -35,7 +36,8 @@ ${nodemodules}:
 ${NODE_PATH}"
 
 export GOPATH="\
-${homedir}/go:\
+${localopt}/go/libexec:\
+${localopt}/go:\
 ${GOPATH}"
 
 export PKG_CONFIG_PATH="\
@@ -54,7 +56,13 @@ alias ll="${localbin}/gls --color=auto -lshF"
 alias la="${localbin}/gls --color=auto -asF"
 alias lla="${localbin}/gls --color=auto -lashF"
 
-alias funcs="set | fgrep \" ()\" | fgrep -vi \"virtualenv\" | fgrep -vi \"_git\" | sort"
+alias uman="/usr/bin/man"
+alias man="${localbin}/gman"
+alias ufile="/usr/bin/file"
+alias file="${localopt}/file-formula/bin/file"
+
+# alias funcs="set | fgrep \" ()\" | fgrep -vi \"virtualenv\" | fgrep -vi \"_git\" | sort"
+alias funcs="set | fgrep \" ()\" | fgrep -vi \"virtualenv\" | grep -v \"^_\" | sort"
 alias gityo="git addremove . && git commit -m"
 alias mateme="mate ${homedir}/.bash_profile"
 
@@ -206,11 +214,55 @@ function extendpath () {
     fi
 }
 
-bpy2config="${homedir}/.config/bpython/config.py2"
-bpy3config="${homedir}/.config/bpython/config.py3"
+# bpy2config="${homedir}/.config/bpython/config.py2"
+# bpy3config="${homedir}/.config/bpython/config.py3"
+# ptpyconfig="${homedir}/.config/ptpython"
 
-function bpy3 () {
-    scriptbin="${homedir}/.script-bin"
+# function bpython_run () {
+#     executable="${1:?python interpreter expected}"
+#     configfile="${2:?bpython configfile expected}"
+#     scriptbin="${homedir}/.script-bin"
+#     replenv="${scriptbin}/repl-bpython.py"
+#     shift 2 # restore original $@ argument set
+#     if [[ ! -e $executable ]]; then
+#         executable="$(which ${executable})"
+#     fi
+#     if [[ ! -x $executable ]]; then
+#         echo "» [ERROR] bad python interpreter: ${executable}"
+#         return 1
+#     fi
+#     if [[ ! -f $configfile ]]; then
+#         echo "» [ERROR] missing bpython config: ${configfile}"
+#         return 1
+#     fi
+#     if [[ $PYTHONPATH ]]; then
+#         pythonpath="${PYTHONPATH}"
+#         extendpath "$(pwd)" pythonpath 0
+#     else
+#         pythonpath="$(pwd)"
+#     fi
+#     extendpath ${scriptbin} pythonpath 0
+#     PYTHONPATH=${pythonpath} ${executable} -m bpython \
+#                                            --config=${configfile} \
+#                                            -i ${replenv} $@
+# }
+
+configdir="${homedir}/.config"
+scriptbin="${homedir}/.script-bin"
+
+function python_module_run () {
+    executable="${1:?python interpreter expected}"
+    modulename="${2:?python module name expected}"
+    configflag="${3:?repl configuration expected}"
+    replenv="${scriptbin}/repl-${modulename,,}.py"
+    shift 3 # restore original $@ argument set
+    if [[ ! -e $executable ]]; then
+        executable="$(which ${executable})"
+    fi
+    if [[ ! -x $executable ]]; then
+        echo "» [ERROR] bad python interpreter: ${executable}"
+        return 1
+    fi
     if [[ $PYTHONPATH ]]; then
         pythonpath="${PYTHONPATH}"
         extendpath "$(pwd)" pythonpath 0
@@ -218,22 +270,60 @@ function bpy3 () {
         pythonpath="$(pwd)"
     fi
     extendpath ${scriptbin} pythonpath 0
-    PYTHONPATH=${pythonpath} python3 -m bpython --config=${bpy3config} -i ${scriptbin}/repl-bpython.py $@
+    PYTHONPATH=${pythonpath} ${executable} -m ${modulename} \
+                                              ${configflag} \
+                                           -i ${replenv} $@
+}
+
+function bpy3 () {
+    pyversion="3"
+    pyname="python${pyversion}"
+    modname="bpython"
+    config="${configdir}/${modname}/config.py${pyversion}"
+    python_module_run $pyname $modname --config=${config} $@
 }
 
 function bpy2 () {
-    scriptbin="${homedir}/.script-bin"
-    if [[ $PYTHONPATH ]]; then
-        pythonpath="${PYTHONPATH}"
-        extendpath "$(pwd)" pythonpath 0
-    else
-        pythonpath="$(pwd)"
-    fi
-    extendpath ${scriptbin} pythonpath 0
-    PYTHONPATH=${pythonpath} python2 -m bpython --config=${bpy2config} -i ${scriptbin}/repl-bpython.py $@
+    pyversion="2"
+    pyname="python${pyversion}"
+    modname="bpython"
+    config="${configdir}/${modname}/config.py${pyversion}"
+    python_module_run $pyname $modname --config=${config} $@
 }
 
 alias bpy="bpy3"
+
+function ptpy3 () {
+    pyversion="3"
+    pyname="python${pyversion}"
+    modname="ptpython"
+    config="${configdir}/${modname}"
+    python_module_run $pyname $modname --config-dir=${config} $@
+}
+
+alias ptpy="ptpy3"
+
+function ipy3 () {
+    pyversion="3"
+    pyname="python${pyversion}"
+    modname="IPython"
+    config="${configdir}/${modname}/config${pyversion}.py"
+    python_module_run $pyname $modname --config=${config} \
+                                       --term-title --banner --nosep \
+                                       --no-confirm-exit --colors=LightBG $@
+}
+
+function ipy2 () {
+    pyversion="2"
+    pyname="python${pyversion}"
+    modname="IPython"
+    config="${configdir}/${modname}/config${pyversion}.py"
+    python_module_run $pyname $modname --config=${config} \
+                                       --term-title --banner --nosep \
+                                       --no-confirm-exit --colors=Neutral $@
+}
+
+alias ipy="ipy3"
 
 function gitwat () {
     git grep -e "$@" `git rev-list --all`
@@ -256,11 +346,11 @@ function xmlpp () {
     fi
 }
 
-function glog() {
+function glog () {
     git log --pretty=oneline --graph --abbrev-commit --branches --remotes --all --cherry-mark --full-history $@
 }
 
-function yo() {
+function yo () {
     if [ "$1" ]; then
         echo "» file results for ${1}"
         file "${1}"
@@ -269,7 +359,7 @@ function yo() {
     fi
 }
 
-function yoyo() {
+function yoyo () {
     
     upth="${1:?» file path or command name expected}"
     
@@ -299,13 +389,13 @@ function yoyo() {
         
         # echo "» `hfsdata -{k,A,o}` results for ${pth}"
         # echo ""
-        /usr/local/opt/osxutils/bin/hfsdata -k $pth
-        /usr/local/opt/osxutils/bin/hfsdata -A $pth
-        /usr/local/opt/osxutils/bin/hfsdata -o $pth
+        ${localopt}/osxutils/bin/hfsdata -k $pth
+        ${localopt}/osxutils/bin/hfsdata -A $pth
+        ${localopt}/osxutils/bin/hfsdata -o $pth
         
-        # hfsmeta="$(/usr/local/opt/osxutils/bin/hfsdata -A $pth)"
+        # hfsmeta="$(${localopt}/osxutils/bin/hfsdata -A $pth)"
         # echo -n "${hfsmeta}" | /usr/bin/sed -n -E 'y/,/\n/'
-        # hfsmeta="$(/usr/local/opt/osxutils/bin/hfsdata -o $pth)"
+        # hfsmeta="$(${localopt}/osxutils/bin/hfsdata -o $pth)"
         # # echo -n "${hfsmeta}" | /usr/bin/sed -n -E 'y/,/\n/'
         # echo -n "${hfsmeta}" | /usr/bin/awk 'BEGIN { FS = "([ \t]*|[ \t]+)(,)([ \t]*|[ \t]+)" } \
         #                                            { siz = split($0, vec) } \
@@ -342,7 +432,7 @@ function yoyo() {
     
 }
 
-function see() {
+function see () {
     upth="${1:?» file path or command name expected}"
     
     if [[ ! -e "${upth}" ]]; then
@@ -367,7 +457,7 @@ function see() {
     fi
 }
 
-function pyls() {
+function pyls () {
     if [ "$1" ]; then
         attribute_count=$(py "len(dir(${1}))")
         item_count=$(py "getattr(${1}, '__len__', lambda *a, **k: 0)()")
@@ -383,14 +473,14 @@ function pyls() {
 
 alias columnize="${localbin}/columns -W `tput cols`"
 
-function getlinks() {
+function getlinks () {
     if [ "$1" ]; then
         echo "» Getting links for “${1}”:"
         curl -s "${1}" | BROWSER="/usr/bin/open -a /Applications/Safari.app %s" urlview
     fi
 }
 
-function anybar() {
+function anybar () {
     if [ "$1" ]; then
         port="${2:-1738}"
         echo "» Setting AnyBar at port ${port} to ${1}…"
@@ -403,7 +493,7 @@ function anybar() {
 # virtualenvwrapper. http://www.doughellmann.com/docs/virtualenvwrapper/
 export WORKON_HOME="${homedir}/Praxa"
 export PIP_RESPECT_VIRTUALENV=true
-export VIRTUALENVWRAPPER_PYTHON="/usr/local/opt/python/libexec/bin/python"
+export VIRTUALENVWRAPPER_PYTHON="${localopt}/python/libexec/bin/python"
 
 # PROMPT.
 bash_prompt=${bashconfig}/bash_prompt.sh
@@ -433,7 +523,8 @@ export HOMEBREW_GIT="${localbin}/git"
 # postgres makes everything freak out
 ulimit -n 4096
 
-# Allow `less` to recognize ANSI colors in I/O:
+# Allow `more`/`less`/`most` to recognize ANSI colors in I/O:
+export MANPAGER="most"
 export PAGER="less"
 export LESS="-r"
 
