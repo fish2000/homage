@@ -24,6 +24,8 @@ Usage:
   asscat.py               -S            |  --show-valid-sizes
   asscat.py               -I            |  --show-interpolation-methods
   asscat.py               -O            |  --show-save-options
+  asscat.py               -H            |  --show-sanitized-help
+  asscat.py                                --show-sanitized-version
   asscat.py               -h            |  --help
   asscat.py               -v            |  --version
   
@@ -32,7 +34,7 @@ Arguments:
                                         formats that PIL or Pillow can decode.
   
 Options:
-  -d DIRECTORY --destination=DIRECTORY  destination directory [default: $CWD].
+  -d DIRECTORY --destination=DIRECTORY  destination directory [default: $PWD].
   -s SIZE --size=SIZE                   size (1x/2x/3x) of inputs [default: 3x].
   -i METHOD --interpolation=METHOD      interpolation method; one of either:
                                        “box”, “bilinear”, “bicubic”, “hamming”,
@@ -58,6 +60,10 @@ Options:
                                         method arguments.
   -O --show-save-options                exit after showing the output image options
                                         as passed to ‘PIL.Image.Image.save(…)’.
+  -H --show-sanitized-help              exit after showing this help text, after
+                                        sanitizing it as ASCII-safe.
+  --show-sanitized-version              exit after showing this programs’ version,
+                                        after sanitizing it as ASCII-safe.
   -h --help                             exit after showing this help text.
   -v --version                          exit after showing this programs’ version.
   
@@ -72,7 +78,7 @@ import sys, os
 import json
 import re
 
-DEBUG = bool(os.environ.get('DEBUG', False))
+DEBUG = bool(int(os.environ.get('DEBUG', '0'), base=10))
 PY3 = False
 
 try:
@@ -84,6 +90,8 @@ else:
 
 if PY3:
     unicode = str
+
+VERSION = u'asscat.py 0.4.8 © 2016-2019 Alexander Böhn / OST, LLC'
 
 class DebugExit(SystemExit):
     """ A signal to the caller to exit cleanly """
@@ -188,18 +196,20 @@ def save(image, pth, verbose=False):
     return image_file
 
 # PIL Image.save(…) arguments -- options specifying image file output:
-save.options  = { 'compress_level' : 9,
-                        'optimize' : True,
-                          'format' : 'png' }
+save.options = { 'compress_level' : 9,
+                       'optimize' : True,
+                         'format' : 'png' }
 
-def dictionary_to_json(dictionary):
+def to_json(dictionary):
     """ Encode a Python dict as a JSON dictionary, using the same
         formatting properties used by Xcode in Apple’s asset catalog
         metadata JSON files
     """
-    return json.dumps(dictionary, indent=4,
-                                  separators=(',', ' : '),
-                                  sort_keys=True)
+    return json.dumps(dictionary, **to_json.options)
+
+to_json.options = { 'separators' : (',', ' : '),
+                     'sort_keys' : True,
+                        'indent' : 4 }
 
 def keyed(function):
     """ Assign an attribute “key” to a target function derived
@@ -247,13 +257,13 @@ def show_interpolation_methods():
     print("• For the (literal) source of these, q.v. https://git.io/fhFxV")
     print()
     by_index = {}
-    for method_name in interpol.methods:
-        by_index["%i:%s" % (interpol(method_name), method_name)] = method_name
-    for idx, method_name in sorted(by_index.items()):
-        pil_constant = interpol(method_name)
+    for method in interpol.methods:
+        by_index["%i:%s" % (interpol(method), method)] = method
+    for idx, method in sorted(by_index.items()):
+        pil_constant = interpol(method)
         print("» ∞(%s) § “%s” %s" % (pil_constant,
-                                     method_name.upper(),
-                                     method_name == interpol.default and '» (default)' or ''))
+                                     method.upper(),
+                                     method == interpol.default and '» (default)' or ''))
 
 @keyed
 def show_save_options():
@@ -263,7 +273,45 @@ def show_save_options():
     """
     print("» OUTPUT IMAGE SAVE OPTIONS:")
     print()
-    print(dictionary_to_json(save.options))
+    print(to_json(save.options))
+
+# help_doublequote_re = (re.compile(r"[“”]", re.MULTILINE), '"')
+# help_singlequote_re = (re.compile(r"[‘’]", re.MULTILINE), "'")
+# help_euroquote_re = (re.compile(r"[«»]", re.MULTILINE), ":")
+# help_elipses_re = (re.compile(r"…", re.MULTILINE), "...")
+# help_o_umlaut_re = (re.compile(r"ö", re.MULTILINE), "o")
+# help_copyright_re = (re.compile(r"©", re.MULTILINE), "(c)")
+
+regex = lambda string: re.compile(string, re.MULTILINE)
+
+def sanitize(text):
+    """ Remove specific unicode strings, in favor of ASCII-friendly versions """
+    sanitized = unicode(text)
+    for sanitizer, substitution in sanitize.sanitizers:
+        sanitized, _ = sanitizer.subn(substitution, sanitized)
+    return sanitized
+
+# sanitize.sanitizers = (help_doublequote_re, help_singlequote_re, help_euroquote_re,
+#                        help_elipses_re, help_o_umlaut_re, help_copyright_re)
+
+sanitize.sanitizers = (
+    (regex(r"[“”]"), '"'),
+    (regex(r"[‘’]"), "'"),
+    (regex(r"[«»]"), ":"),
+    (regex(r"…"), "..."),
+    (regex(r"ö"), "o"),
+    (regex(r"©"), "(c)")
+)
+
+@keyed
+def show_sanitized_help():
+    """ Print the help message, without any bothersomely high codepoints """
+    print(sanitize(__doc__))
+
+@keyed
+def show_sanitized_version():
+    """ Print the version string, without any bothersomely high codepoints """
+    print(sanitize(VERSION))
 
 def filename_with_size(filename, size):
     """ Compute an output filename for a size descriptor, using
@@ -325,7 +373,7 @@ def stub_json():
     """ Get the stub dictionary for an asset catalogs’ root-level metadata
         file – consisting only of an “info” entry – encoded as a JSON string
         ready for output """
-    return dictionary_to_json({ 'info' : JSON_INFO })
+    return to_json({ 'info' : JSON_INFO })
 
 def namelist_to_json(namelist, verbose=False):
     """ Transform a list of dictionaries – each dictionary specifying a filename
@@ -338,8 +386,8 @@ def namelist_to_json(namelist, verbose=False):
     for namedict in namelist:
         namedict['idiom'] = 'universal'
         outlist.append(namedict)
-    return dictionary_to_json({ 'images' : outlist,
-                                'info'   : JSON_INFO })
+    return to_json({ 'images' : outlist,
+                       'info' : JSON_INFO })
 
 if PY3:
     def utf8_encode(source):
@@ -349,6 +397,12 @@ if PY3:
         elif type(source) is bytearray:
             return bytes(source)
         return bytes(source, encoding=utf8_encode.encoding)
+    
+    def utf8_decode(source):
+        """ Decode a source from UTF-8 bytes to a string using Python 3 semantics """
+        if type(source) in (bytes, bytearray):
+            return str(source, encoding=utf8_decode.encoding)
+        return source
 
 else:
     def utf8_encode(source):
@@ -358,8 +412,14 @@ else:
         elif type(source) is bytearray:
             return str(source)
         return source
+    
+    def utf8_decode(source):
+        """ Decode a source from a UTF-8 bytestring to Unicode using Python 2 semantics """
+        if type(source) in (str, bytearray):
+            return source.decode(utf8_decode.encoding)
+        return source
 
-utf8_encode.encoding = 'UTF-8'
+utf8_encode.encoding = utf8_decode.encoding = sys.getfilesystemencoding().upper() # 'UTF-8'
 
 def write_to_path(data, pth, relative_to=None, verbose=False):
     """ Write data to a new file using a context-managed handle """
@@ -373,8 +433,6 @@ def write_to_path(data, pth, relative_to=None, verbose=False):
         print("» Wrote %i bytes to %s" % (len(bytestring),
                                           os.path.relpath(pth,
                                                           start=start)))
-
-VERSION = u'asscat.py 0.4.8 © 2016-2019 Alexander Böhn / OST, LLC'
 
 def cli(argv=None, debug=False):
     """ The primary entry point for the asscat.py command-line tool.
@@ -426,8 +484,8 @@ def cli(argv=None, debug=False):
     
     # Set up values and defaults for the remaining standard-execution arguments:
     
-    ipths = (os.path.expanduser(pth) for pth in sorted(arguments.get('SOURCE', [])))
-    opth = str(arguments.get('--destination', '$CWD'))
+    ipths = (utf8_decode(os.path.expanduser(p)) for p in sorted(arguments.get('SOURCE', [])))
+    opth = str(arguments.get('--destination', '$PWD'))
     interpolation = str(arguments.get('--interpolation', interpol.default)).lower()
     siz = str(arguments.get('--size', "3x")).lower()
     catalog_flag = bool(arguments.get('--catalog-directory'))
@@ -439,8 +497,8 @@ def cli(argv=None, debug=False):
     
     # Process arguments:
     
-    if opth == "$CWD":
-        opth = os.getcwd()
+    if opth == "$PWD":
+        opth = os.environ.get('PWD', os.getcwd())
         warnings.warn("Writing images to working directory: %s" % opth,
                       OptionsWarning,
                       source=None, stacklevel=0)
@@ -610,31 +668,40 @@ def main(debug=False):
     """ Execute the primary command-line entry point function,
         trapping any exceptions of classes we expect might get raised:
     """
+    # Local function to print error messages:
+    def error(string):
+        print("[error] %s" % string, file=sys.stderr)
+    
+    # Warn if argument debugging is on:
+    if debug:
+        print("» Argument debugging enabled")
+    
+    # Execute main entry point, catching exceptions:
     try:
         cli(sys.argv, debug=debug)
+        # cli(['asscat.py', '--show-valid-sizes'], debug=debug)
+        # cli(['asscat.py', '--show-interpolation-methods'], debug=debug)
+        # cli(['asscat.py', '--show-save-options'], debug=debug)
     except ArgumentError:
-        print("[error] bad arguments passed:",
-              file=sys.stderr)
+        error("bad arguments passed:")
         raise
     except FilesystemError:
-        print("[error] filesystem error encountered:",
-              file=sys.stderr)
+        error("filesystem error encountered:")
         raise
-    except DocoptExit:
-        # This is how default docopt usage gets printed:
-        raise
-    except DebugExit:
-        # This is when we’re printing debug argument values:
+    except DocoptExit:      # For printing default docopt usage
         print()
         raise
-    except DisplayAndExit:
-        # This is when we’re printing lists of valid stuff:
+    except DebugExit:       # For debugging argument-parsing values
+        print()
+        raise
+    except DisplayAndExit:  # For printing lists of valid info
         print()
         raise
     except Exception:
-        print("[error] exception during execution:",
-              file=sys.stderr)
+        error("unknown exception during execution:")
         raise
+    
+    # If nothing was raised, exit cleanly:
     sys.exit(0)
 
 if __name__ == '__main__':
