@@ -112,7 +112,7 @@ else
 fi
 
 # include URL downloading and filesystem caching
-URL_DOWNLOAD_CACHE=${cachedir}/bash_url_download
+export URL_DOWNLOAD_CACHE=${cachedir}/bash_url_download
 url_dload=${bashconfig}/url_download.sh
 url_cache=${bashconfig}/url_cache.sh
 if ([[ -f $url_dload ]] && [[ -f $url_cache ]]); then
