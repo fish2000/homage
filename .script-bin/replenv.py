@@ -231,9 +231,9 @@ else:
 
 if not six.PY3:
     if is_python2_dead:
-        warning = u"∞§• ¡LOOK OUT! Python 2.x has been officially declared DEAD!!!!!!!"
+        warning = u"∞§• ¡LOOK OUT! Python 2.x has been officially declared DEAD!!!!!!!\n"
     else:
-        warning = u"∞§• ¡BEWARE! Python 2.x will perish when the clock strikes 2020!!!"
+        warning = u"∞§• ¡BEWARE! Python 2.x will perish when the clock strikes 2020!!!\n"
     if os.environ.get('TM_PYTHON'):
         print(warning, file=sys.stderr)
     else:
