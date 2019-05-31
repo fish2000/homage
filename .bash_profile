@@ -12,9 +12,13 @@ export HISTCONTROL=ignoreboth                  # ignore dupes AND lines starting
 export HISTTIMEFORMAT='%F %T '                 # add the full date and time to lines
 
 # So, LET'S DANCE!!
+# ~/.cache/npm/lib/node_modules
 homedir="/Users/${USER}"
 bashconfig="${homedir}/.bash_config.d"
-nodemodules="${homedir}/.node_modules"
+nodemodules="${homedir}/.cache/npm/lib/node_modules"
+configdir="${homedir}/.config"
+scriptbin="${homedir}/.script-bin"
+
 localbin="/usr/local/bin"
 localopt="/usr/local/opt"
 
@@ -30,8 +34,9 @@ ${localbin}:\
 /usr/local/sbin:\
 ${MINIMAL_PATH}"
 
+# /usr/local/share/npm/lib/node_modules
 export NODE_PATH="\
-/usr/local/share/npm/lib/node_modules:\
+/usr/local/opt/node/libexec/lib/node_modules:\
 ${nodemodules}:
 ${NODE_PATH}"
 
@@ -51,8 +56,8 @@ export XML_CATALOG_FILES="/usr/local/etc/xml/catalog"
 export JAVA_HOME=`/usr/libexec/java_home`
 export CLICOLOR_FORCE=1 # q.v. `man tree`
 
-alias l="${localbin}/gls --color=auto -sF"
-alias ll="${localbin}/gls --color=auto -lshF"
+alias l="${localbin}/gls --color=auto --ignore=\*.pyc -sF"
+alias ll="${localbin}/gls --color=auto --ignore=\*.pyc -lshF"
 alias la="${localbin}/gls --color=auto -asF"
 alias lla="${localbin}/gls --color=auto -lashF"
 
@@ -60,6 +65,13 @@ alias uman="/usr/bin/man"
 alias man="${localbin}/gman"
 alias ufile="/usr/bin/file"
 alias file="${localopt}/file-formula/bin/file"
+
+function dns () {
+    scutil --dns \
+        | egrep -i "{|resolver|domain|reach|}" \
+        | sed -E 's/: ([0-9a-z\.\-]+)$/: \"\1\"/' \
+        | pygmentize -l elixir -O "style=monokai"
+}
 
 # alias funcs="set | fgrep \" ()\" | fgrep -vi \"virtualenv\" | fgrep -vi \"_git\" | sort"
 alias funcs="set | fgrep \" ()\" | fgrep -vi \"virtualenv\" | grep -v \"^_\" | sort"
@@ -80,10 +92,17 @@ alias time_machine_logs="log stream --style syslog --predicate 'senderImagePath 
 alias serve="open -a /Applications/Safari.app http://localhost:888/ && sudo PYTHONPATH= python3 -m http.server 888"
 alias texturetool="/Developer/Platforms/iPhoneOS.platform/Developer/usr/bin/texturetool"
 
+# N.B. the `columns` binary is from the Homebrew `autogen` formula:
+alias columnize="${localbin}/columns -W `tput cols`"
+
 alias pathvars="python -c '\
 from __future__ import print_function;import os;\
 [print(var) for var in sorted(os.environ.keys()) if var.endswith(\"PATH\")]\
 '"
+alias evars="python -c '\
+from __future__ import print_function;import os;\
+[print(var) for var in sorted(os.environ.keys())]\
+' | columnize"
 
 # include private stuff
 bash_private=${bashconfig}/private.bash
@@ -214,9 +233,6 @@ function extendpath () {
     fi
 }
 
-configdir="${homedir}/.config"
-scriptbin="${homedir}/.script-bin"
-
 function python_module_run () {
     executable="${1:?python interpreter expected}"
     modulename="${2:?python module name expected}"
@@ -276,8 +292,8 @@ function ipy3 () {
     modname="IPython"
     config="${configdir}/${modname}/config${pyversion}.py"
     python_module_run $pyname $modname --config=${config} \
-                                       --term-title --banner --nosep \
-                                       --no-confirm-exit --colors=LightBG $@
+                                       --term-title --banner --nosep --no-confirm-exit \
+                                       --colors=LightBG --profile=repl${pyversion} $@
 }
 
 function ipy2 () {
@@ -286,8 +302,8 @@ function ipy2 () {
     modname="IPython"
     config="${configdir}/${modname}/config${pyversion}.py"
     python_module_run $pyname $modname --config=${config} \
-                                       --term-title --banner --nosep \
-                                       --no-confirm-exit --colors=Neutral $@
+                                       --term-title --banner --nosep  --no-confirm-exit \
+                                       --colors=Neutral --profile=repl${pyversion} $@
 }
 
 alias ipy="ipy3"
@@ -351,28 +367,28 @@ function yoyo () {
         
         if [[ ! -d $pth ]]; then
             echo ""
-            gls --color=auto -lshF $pth
+            gls --color=auto -lshF "${pth}"
         fi
         
         # echo "» `hfsdata -{k,A,o}` results for ${pth}"
         # echo ""
-        ${localopt}/osxutils/bin/hfsdata -k $pth
-        ${localopt}/osxutils/bin/hfsdata -A $pth
-        ${localopt}/osxutils/bin/hfsdata -o $pth
+        ${localopt}/osxutils/bin/hfsdata -k "${pth}"
+        ${localopt}/osxutils/bin/hfsdata -A "${pth}"
+        ${localopt}/osxutils/bin/hfsdata -o "${pth}"
         
-        # hfsmeta="$(${localopt}/osxutils/bin/hfsdata -A $pth)"
+        # hfsmeta="$(${localopt}/osxutils/bin/hfsdata -A $"${pth}")"
         # echo -n "${hfsmeta}" | /usr/bin/sed -n -E 'y/,/\n/'
-        # hfsmeta="$(${localopt}/osxutils/bin/hfsdata -o $pth)"
+        # hfsmeta="$(${localopt}/osxutils/bin/hfsdata -o $"${pth}")"
         # # echo -n "${hfsmeta}" | /usr/bin/sed -n -E 'y/,/\n/'
         # echo -n "${hfsmeta}" | /usr/bin/awk 'BEGIN { FS = "([ \t]*|[ \t]+)(,)([ \t]*|[ \t]+)" } \
         #                                            { siz = split($0, vec) } \
         #                                        END { for (idx = 0; idx < siz; idx++) printf("%s\n", vec[idx]) }'
         
         echo ""
-        if [[ ! -d $pth ]]; then
+        if [[ ! -d "${pth}" ]]; then
             # echo "» file results for ${pth}"
             # echo ""
-            filemeta=$(file -z --preserve-date $pth)
+            filemeta=$(file -z --preserve-date "${pth}")
             shopt -s nocasematch
             if [[ $filemeta =~ (JPEG|TIFF|JFIF|Exif|image) ]]; then
                 echo "${filemeta}" | /usr/bin/awk 'BEGIN { FS = "([ \t]*|[ \t]+)(,)([ \t]*|[ \t]+)" } \
@@ -385,7 +401,7 @@ function yoyo () {
             
             # echo "» otool -L results for ${pth}"
             # echo ""
-            otool -L $pth
+            otool -L "${pth}"
         fi
     
     else
@@ -437,8 +453,6 @@ function pyls () {
         py "sorted(dir(${1}))" | ${localbin}/columns -W `tput cols`
     fi
 }
-
-alias columnize="${localbin}/columns -W `tput cols`"
 
 function getlinks () {
     if [ "$1" ]; then
