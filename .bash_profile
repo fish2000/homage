@@ -12,12 +12,12 @@ export HISTCONTROL=ignoreboth                  # ignore dupes AND lines starting
 export HISTTIMEFORMAT='%F %T '                 # add the full date and time to lines
 
 # So, LET'S DANCE!!
-# ~/.cache/npm/lib/node_modules
 homedir="/Users/${USER}"
 bashconfig="${homedir}/.bash_config.d"
-nodemodules="${homedir}/.cache/npm/lib/node_modules"
+cachedir="${homedir}/.cache"
 configdir="${homedir}/.config"
 scriptbin="${homedir}/.script-bin"
+nodemodules="${cachedir}/npm/lib/node_modules"
 
 localbin="/usr/local/bin"
 localopt="/usr/local/opt"
@@ -34,7 +34,6 @@ ${localbin}:\
 /usr/local/sbin:\
 ${MINIMAL_PATH}"
 
-# /usr/local/share/npm/lib/node_modules
 export NODE_PATH="\
 /usr/local/opt/node/libexec/lib/node_modules:\
 ${nodemodules}:
@@ -113,6 +112,7 @@ else
 fi
 
 # include URL downloading and filesystem caching
+URL_DOWNLOAD_CACHE=${cachedir}/bash_url_download
 url_dload=${bashconfig}/url_download.sh
 url_cache=${bashconfig}/url_cache.sh
 if ([[ -f $url_dload ]] && [[ -f $url_cache ]]); then
