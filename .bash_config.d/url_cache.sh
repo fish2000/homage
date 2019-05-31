@@ -4,7 +4,7 @@
 # cache_url, fetch_from_cache_to, fetch_and_expand
 
 function __cache_location () {
-    echo ${PRAXA_DOWNLOAD_CACHE}
+    echo ${URL_DOWNLOAD_CACHE}
 }
 
 function __url_hash_filename () {
