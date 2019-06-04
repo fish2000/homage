@@ -16,6 +16,9 @@ except ImportError:
 maxint = getattr(sys, 'maxint',
          getattr(sys, 'maxsize', (2 ** 64) / 2))
 
+# Determine if we’re on PyPy:
+PYPY = hasattr(sys, 'pypy_version_info')
+
 import io, os, re, six
 
 DEBUG = bool(int(os.environ.get('DEBUG', '0'), base=10))
@@ -24,7 +27,6 @@ import argparse
 import array
 import contextlib
 import decimal
-import numpy
 import warnings
 
 try:
@@ -102,7 +104,7 @@ class ExportWarning(Warning):
     pass
 
 def export(thing, name=None, doc=None):
-    """ Add a function -- or any object, really, to the export list.
+    """ Add a function -- or any object, really -- to the export list.
         Exported items will end up wih their names in the modules’
        `__all__` tuple, and will also be named in the list returned
         by the modules’ `__dir__()` function.
@@ -152,7 +154,7 @@ def export(thing, name=None, doc=None):
     if doc is not None:
         try:
             thing.__doc__ = doctrim(doc)
-        except AttributeError:
+        except (AttributeError, TypeError):
             typename = determine_name(type(thing))
             message = "Can’t set the docstring for thing “%s” of type %s:" % (named, typename)
             warnings.warn(message, ExportWarning, stacklevel=2)
@@ -165,7 +167,7 @@ def export(thing, name=None, doc=None):
     if not hasattr(thing, '__export_name__'):
         try:
             thing.__export_name__ = named
-        except AttributeError:
+        except (AttributeError, TypeError):
             if DEBUG:
                 typename = determine_name(type(thing))
                 message = "Can’t set __export_name__ for thing “%s” of type %s:" % (named, typename)
@@ -460,21 +462,32 @@ isabstractcontextmanager = lambda cls: graceful_issubclass(cls, contextlib.Abstr
 iscontextmanager = lambda cls: allpyattrs(cls, 'enter', 'exit') or isabstractcontextmanager(cls)
 
 numeric_types = (int, float, decimal.Decimal)
-array_types = (numpy.ndarray,
-               numpy.matrix,
-               numpy.ma.MaskedArray, array.ArrayType,
-                                     bytearray, memoryview)
+
+try:
+    import numpy
+except (ImportError, SyntaxError):
+    numpy = None
+    array_types = (array.ArrayType,
+                   bytearray, memoryview)
+else:
+    array_types = (numpy.ndarray,
+                   numpy.matrix,
+                   numpy.ma.MaskedArray, array.ArrayType,
+                                         bytearray, memoryview)
+
 bytes_types = (bytes, bytearray)
 string_types = six.string_types
 path_classes = tuplize(argparse.FileType, or_none(os, 'PathLike'), Path) # Path may be “None” in disguise
 path_types = string_types + bytes_types + path_classes
 file_types = (io.TextIOBase, io.BufferedIOBase, io.RawIOBase, io.IOBase)
+
 callable_types = (types.Function,
                   types.Method,
                   types.Lambda,
                   types.BuiltinFunction,
                   types.BuiltinMethod)
-if six.PY3:
+
+if six.PY3 and not PYPY:
     callable_types += (
                   types.Coroutine,
                   types.ClassMethodDescriptor,
@@ -518,6 +531,7 @@ export(item,            name='item',        doc="Return the first existing item 
 
 # NO DOCS ALLOWED:
 # export(λ,               name='λ')
+export(PYPY,            name='PYPY')
 export(LAMBDA,          name='LAMBDA')
 export(BUILTINS,        name='BUILTINS')
 export(VERBOTEN,        name='VERBOTEN')
@@ -639,8 +653,9 @@ def test():
     assert not isnumeric("2001e50")
     
     assert isarray(array.array)
-    assert isarray(numpy.ndarray)
-    assert isarray(numpy.array([0, 1, 2]))
+    if numpy is not None:
+        assert isarray(numpy.ndarray)
+        assert isarray(numpy.array([0, 1, 2]))
     assert isstring(str)
     assert isstring("")
     assert isbytes(bytes)
