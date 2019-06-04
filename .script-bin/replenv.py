@@ -22,7 +22,7 @@ if __name__ == '__main__':
 # Python version figlet banners:
 banners = {}
 
-banners['3.x'] = """
+banners['python3.x'] = """
                   888    888                         .d8888b.                
                   888    888                        d88P  Y88b               
                   888    888                             .d88P               
@@ -37,7 +37,7 @@ banners['3.x'] = """
                                                                              
 """
 
-banners['3.8'] = """
+banners['python3.8'] = """
                   888    888                         .d8888b.       .d8888b.  
                   888    888                        d88P  Y88b     d88P  Y88b 
                   888    888                             .d88P     Y88b .d88P 
@@ -52,7 +52,7 @@ banners['3.8'] = """
                                                                               
 """
 
-banners['3.7'] = """
+banners['python3.7'] = """
                   888    888                         .d8888b.      8888888888 
                   888    888                        d88P  Y88b           d88P 
                   888    888                             .d88P          d88P  
@@ -67,7 +67,7 @@ banners['3.7'] = """
                                                                               
 """
 
-banners['2.7'] = """
+banners['python2.7'] = """
                   888    888                         .d8888b.      8888888888 
                   888    888                        d88P  Y88b           d88P 
                   888    888                               888          d88P  
@@ -82,6 +82,81 @@ banners['2.7'] = """
                                                                               
 """
 
+banners['pypy3.x'] = """
+                                     .d8888b.                                 
+                                    d88P  Y88b                                
+                                         .d88P                                
+88888b.  888  888 88888b.  888  888     8888"      888  888                   
+888 "88b 888  888 888 "88b 888  888      "Y8b.     `Y8bd8P'                   
+888  888 888  888 888  888 888  888 888    888       X88K                     
+888 d88P Y88b 888 888 d88P Y88b 888 Y88b  d88P d8b .d8""8b.                   
+88888P"   "Y88888 88888P"   "Y88888  "Y8888P"  Y8P 888  888                   
+888           888 888           888                                           
+888      Y8b d88P 888      Y8b d88P                                           
+888       "Y88P"  888       "Y88P"                                            
+                                                                              
+"""
+
+banners['pypy3.8'] = """
+                                     .d8888b.       .d8888b.                  
+                                    d88P  Y88b     d88P  Y88b                 
+                                         .d88P     Y88b .d88P                 
+88888b.  888  888 88888b.  888  888     8888"       "888888"                  
+888 "88b 888  888 888 "88b 888  888      "Y8b.     .d8Y""Y8b.                 
+888  888 888  888 888  888 888  888 888    888     888    888                 
+888 d88P Y88b 888 888 d88P Y88b 888 Y88b  d88P d8b Y88b  d88P                 
+88888P"   "Y88888 88888P"   "Y88888  "Y8888P"  Y8P  "Y8888P"                  
+888           888 888           888                                           
+888      Y8b d88P 888      Y8b d88P                                           
+888       "Y88P"  888       "Y88P"                                            
+                                                                              
+"""
+
+banners['pypy3.7'] = """
+                                     .d8888b.      8888888888                 
+                                    d88P  Y88b           d88P                 
+                                         .d88P          d88P                  
+88888b.  888  888 88888b.  888  888     8888"          d88P                   
+888 "88b 888  888 888 "88b 888  888      "Y8b.      88888888                  
+888  888 888  888 888  888 888  888 888    888       d88P                     
+888 d88P Y88b 888 888 d88P Y88b 888 Y88b  d88P d8b  d88P                      
+88888P"   "Y88888 88888P"   "Y88888  "Y8888P"  Y8P d88P                       
+888           888 888           888                                           
+888      Y8b d88P 888      Y8b d88P                                           
+888       "Y88P"  888       "Y88P"                                            
+                                                                              
+"""
+
+banners['pypy3.6'] = """
+                                     .d8888b.       .d8888b.                  
+                                    d88P  Y88b     d88P  Y88b                 
+                                         .d88P     888                        
+88888b.  888  888 88888b.  888  888     8888"      888d888b.                  
+888 "88b 888  888 888 "88b 888  888      "Y8b.     888P "Y88b                 
+888  888 888  888 888  888 888  888 888    888     888    888                 
+888 d88P Y88b 888 888 d88P Y88b 888 Y88b  d88P d8b Y88b  d88P                 
+88888P"   "Y88888 88888P"   "Y88888  "Y8888P"  Y8P  "Y8888P"                  
+888           888 888           888                                           
+888      Y8b d88P 888      Y8b d88P                                           
+888       "Y88P"  888       "Y88P"                                            
+                                                                              
+"""
+
+banners['pypy2.7'] = """
+                                     .d8888b.      8888888888                 
+                                    d88P  Y88b           d88P                 
+                                           888          d88P                  
+88888b.  888  888 88888b.  888  888      .d88P         d88P                   
+888 "88b 888  888 888 "88b 888  888  .od888P"       88888888                  
+888  888 888  888 888  888 888  888 d88P"            d88P                     
+888 d88P Y88b 888 888 d88P Y88b 888 888"       d8b  d88P                      
+88888P"   "Y88888 88888P"   "Y88888 888888888  Y8P d88P                       
+888           888 888           888                                           
+888      Y8b d88P 888      Y8b d88P                                           
+888       "Y88P"  888       "Y88P"                                            
+                                                                              
+"""
+
 # Add miscellaneous necessities:
 from PIL import Image
 from pprint import pprint, pformat
@@ -90,18 +165,14 @@ import appdirs
 import argparse
 import collections
 import colorama
-import colorio
-import colormath
 import contextlib
 import copy
 import datetime
-import dateutil
 import decimal
 import functools
 import inspect
 import itertools
 import math
-import numpy
 import requests
 import shutil
 import six
@@ -110,12 +181,16 @@ import termcolor
 import types
 import xerox
 
+# Determine if we’re on PyPy:
+PYPY = hasattr(sys, 'pypy_version_info')
+prefix = PYPY and 'pypy' or 'python'
+
 # Configure ANSI-color python banner, per python version:
 if six.PY3:
-    banner = banners.get('3.%s' % sys.version_info.minor, banners['3.x'])
+    banner = banners.get('%s3.%s' % (prefix, sys.version_info.minor), banners['%s3.x' % prefix])
     banner_color = colorama.Fore.CYAN
 else:
-    banner = banners['2.7']
+    banner = banners['%s2.7' % prefix]
     banner_color = colorama.Fore.LIGHTGREEN_EX
 
 def print_python_banner(text, color,
@@ -137,18 +212,14 @@ __all__ = ('Image',
            'argparse',
            'collections',
            'colorama',
-           'colorio',
-           'colormath',
            'contextlib',
            'copy',
            'datetime',
-           'dateutil',
            'decimal',
            'functools',
            'inspect',
            'itertools',
            'math',
-           'numpy',
            'reduce',
            'requests',
            'shutil',
@@ -163,7 +234,9 @@ __all__ = ('Image',
            'modules')
 
 python2_expires = 'January 1st, 2020'
-is_python2_dead = datetime.datetime.now() >= dateutil.parser.parse(python2_expires)
+# is_python2_dead = datetime.datetime.now() >= dateutil.parser.parse(python2_expires)
+is_python2_dead = datetime.datetime.now() >= datetime.datetime.now().strptime(python2_expires,
+                                                                             '%B %dst, %Y')
 
 try:
     from functools import reduce
@@ -178,6 +251,32 @@ except (AttributeError, SyntaxError):
 else:
     if six.PY3:
         __all__ += (u'Σ',)
+
+try:
+    import numpy
+    import scipy
+except (ImportError, SyntaxError):
+    pass
+else:
+    # Extend `__all__`:
+    __all__ += ('numpy', 'scipy')
+
+try:
+    import colorio
+    import colormath
+except (ImportError, SyntaxError):
+    pass
+else:
+    # Extend `__all__`:
+    __all__ += ('colorio', 'colormath')
+
+try:
+    import dateutil
+except (ImportError, SyntaxError):
+    pass
+else:
+    # Extend `__all__`:
+    __all__ += ('dateutil',)
 
 try:
     import abc
