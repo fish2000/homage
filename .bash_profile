@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 
 # HISTORY: I have been doomed to repeat it.
-export HISTIGNORE='&:[bf]g:exit:*>|*:*rm*-rf*' # keep bad shit out of history
-shopt -s histappend                            # append history rather than overwrite
-shopt -s cmdhist                               # one command per line
+export HISTIGNORE="\
+&:\
+[bf]g:\
+exit:\
+*>|*:\
+*rm*-rf*:\
+*brew*home*"            # keep bad shit out of history
+shopt -s histappend     # append history rather than overwrite
+shopt -s cmdhist        # one command per line
 
 unset HISTFILESIZE
 export HISTSIZE=1000000
@@ -29,7 +35,7 @@ export PATH="\
 ${localopt}/python/libexec/bin:\
 ${localopt}/ruby/bin:\
 ${localopt}/go/bin:\
-${homedir}/.script-bin:\
+${scriptbin}:\
 ${localbin}:\
 /usr/local/sbin:\
 ${MINIMAL_PATH}"
@@ -55,10 +61,12 @@ export XML_CATALOG_FILES="/usr/local/etc/xml/catalog"
 export JAVA_HOME=`/usr/libexec/java_home`
 export CLICOLOR_FORCE=1 # q.v. `man tree`
 
-alias l="${localbin}/gls --color=auto --ignore=\*.pyc -sF"
-alias ll="${localbin}/gls --color=auto --ignore=\*.pyc -lshF"
-alias la="${localbin}/gls --color=auto -asF"
-alias lla="${localbin}/gls --color=auto -lashF"
+gls="${localbin}/gls --color=auto"
+
+alias l="${gls} --ignore=\*.pyc -sF"
+alias ll="${gls} --ignore=\*.pyc -lshF"
+alias la="${gls} -asF"
+alias lla="${gls} -lashF"
 
 alias uman="/usr/bin/man"
 alias man="${localbin}/gman"
@@ -67,8 +75,8 @@ alias file="${localopt}/file-formula/bin/file"
 
 function dns () {
     scutil --dns \
-        | egrep -i "{|resolver|domain|reach|}" \
-        | sed -E 's/: ([0-9a-z\.\-]+)$/: \"\1\"/' \
+        | /usr/bin/egrep -i "{|resolver|domain|reach|}" \
+        | /usr/bin/sed -E 's/: ([0-9a-z\.\-]+)$/: \"\1\"/' \
         | pygmentize -l elixir -O "style=monokai"
 }
 
@@ -103,7 +111,7 @@ from __future__ import print_function;import os;\
 [print(var) for var in sorted(os.environ.keys())]\
 ' | columnize"
 
-# include private stuff
+# Include private Bash stuff:
 bash_private=${bashconfig}/private.bash
 if [[ -f $bash_private ]]; then
     source $bash_private
@@ -111,7 +119,7 @@ else
     echo "Missing bash support file: ${bash_private}"
 fi
 
-# include URL downloading and filesystem caching
+# Include URL downloading and filesystem caching Bash funcs:
 export URL_DOWNLOAD_CACHE=${cachedir}/bash_url_download
 url_dload=${bashconfig}/url_download.sh
 url_cache=${bashconfig}/url_cache.sh
@@ -125,33 +133,39 @@ else
 fi
 
 function archive () {
+    # Usage:
+    # $ archive /tmp/yodogg ~/Dropbox/YoDogg    <-- Archives ~/Dropbox/YoDogg to
+    #                                                         /tmp/yodogg.dmg
     dst="${1:?Archive name expected}"
     pth="${2:?Source directory expected}"
+    volname="$(basename ${dst^^} | /usr/bin/sed -e s/[^A-Za-z0-9]/-/g)"
     hdiutil create -srcfolder $pth \
-        -volname "$(basename ${dst^^} | sed -e s/[^A-Za-z0-9]/-/g)" \
+        -volname $volname \
         -verbose -ov -nocrossdev -noscrub \
-        -format UDBZ "$(echo ${dst}).dmg"
+        -format UDBZ "${dst}.dmg"
 }
 
 function echopath () {
-    # usage:
+    # Usage:
     # $ echopath               <-- prints each path in $PATH
     # $ echopath PYTHONPATH    <-- prints each path in $PYTHONPATH
-    # … Path elements are printed one per line.
+    # … Path elements are printed one per line. They don’t have to
+    # be paths, strictly speaking: try e.g. `echopath HISTIGNORE`
+    # to see what I am talking about.
     pathvar="${1:-PATH}"
     
-    # check named path variable (if any):
+    # Check for the variable named in the argument, if any:
     if [[ ! ${!pathvar} ]]; then
         echo "- Path variable ${pathvar} is unknown"
         return 1
     fi
     
-    # Split the path value by ':' charachters and echo:
+    # Split the path into elements delineated by ':' charachters:
     echo "${!pathvar}" | /usr/bin/sed -E 'y/:/\n/'
 }
 
 function checkpath () {
-    # usage:
+    # Usage:
     # $ checkpath                   <-- checks paths in $PATH
     # $ checkpath PYTHONPATH        <-- checks paths in $PYTHONPATH
     # $ export WEIRD_PATH="/yo/dogg;/usr/bin;/var/tmp"
@@ -166,23 +180,23 @@ function checkpath () {
     pathvar="${1:-PATH}"
     IFS="${2:-':'}"
     
-    # check named path variable (if any):
+    # Check for the named path variable (if any):
     if [[ ! ${!pathvar} ]]; then
         echo "- Path variable ${pathvar} is unknown"
         return 1
     fi
     
-    # tokenize the path variable by whatever $IFS has been set:
+    # Tokenize the path variable, per to what $IFS has been set:
     read -a pathparts <<< "${!pathvar}"
     
-    # confirm at least one path element is present:
+    # Confirm that at least one path element is present:
     pathcount=${#pathparts[@]}
     if [[ $pathcount -lt 1 ]]; then
         echo "- Path variable ${pathvar} contains no path elements"
         return 1
     fi
     
-    # iterate and check the path elements:
+    # Iteratively check and print path elements:
     echo "» Checking path variable ${pathvar} with ${pathcount} elements…"
     echo ""
     for pth in "${pathparts[@]}"; do
@@ -194,26 +208,26 @@ function checkpath () {
 # Courtesy the UNIX StackExchange:
 # https://unix.stackexchange.com/a/124447/57742
 function extendpath () {
-    # usage:
+    # Usage:
     # $ extendpath /yo/dogg/bin
     # $ extendpath /yo/dogg/python-modules PYTHONPATH
     newpath="${1:?New path segment expected}"
     pathvar="${2:-PATH}"
     verbose="${3:-1}"
     
-    # check existence of new path:
+    # Check the existence of the new path:
     if [[ ! -d $newpath ]]; then
         echo "- Directory does not exist: ${newpath}"
         return 1
     fi
     
-    # check named path variable (if any):
+    # Check for the named path variable, if any:
     if [[ ! ${!pathvar} ]]; then
         echo "- Path variable is unknown: “${pathvar}”"
         return 1
     fi
     
-    # make a nameref pointing to the named variable --
+    # Make a nameref pointing to the named variable --
     # q.v. `help declare` sub.
     typeset -n path="${pathvar}"
     case ":${!pathvar}:" in
@@ -221,12 +235,12 @@ function extendpath () {
         *) path="$newpath:${!pathvar}"  ;;
     esac
     
-    # re-export via nameref:
+    # Re-export via nameref:
     export path
     
-    # print results if verbose:
+    # Print results if verbose:
     if [[ $verbose -eq 1 ]]; then
-        echo "» Contents of path variable ${pathvar}:"
+        echo "» Path variable “${pathvar}” components:"
         echo ""
         echo "${!pathvar}" | /usr/bin/sed -E 'y/:/\n/'
         echo ""
@@ -234,16 +248,39 @@ function extendpath () {
 }
 
 function python_module_run () {
-    executable="${1:?python interpreter expected}"
-    modulename="${2:?python module name expected}"
-    configflag="${3:?repl configuration expected}"
+    # Usage:
+    # $ python_module_run python3 bpython  --config=path/to/config ...
+    # $ python_module_run python3 IPython  --config=path/to/config ...
+    # $ python_module_run python3 ptpython --config-dir=path/to/config-dir ...
+    # $ python_module_run python2 bpython  --config=path/to/config.py2 ...
+    # … Issuing one of the above commands will first ensure that:
+    #  [a] `python3` is an available executable on the current PATH,
+    #  [b] `~/.script-bin/repl-bpython.py` is a readable file, and
+    #  [c] ${pythonpath} contains '~/.script-bin' and $PWD, as well as
+    #       anything from any existing $PYTHONPATH variable
+    # … If all of these conditions are met, it will assemble a command:
+    # $ PYTHONPATH=$pythonpath $executable -m $module $config -i $replenv $@
+    # … using the arguments it was passed and its environment to populate
+    #   the variables from which this command is built. Ultimately this will
+    #   execute a Python REPL (read-evaluate-print-loop) interpreter that
+    #   exposes an interactive Python environment.
+    # N.B.: Users will generally not execute `python_module_run` themselves;
+    #   see below for examples of functions that set up arguments to a specific
+    #  `python_module_run` command and then execute that.
+    executable="${1:?Python interpreter expected}"
+    modulename="${2:?Python module name expected}"
+    configflag="${3:?REPL configuration expected}"
     replenv="${scriptbin}/repl-${modulename,,}.py"
-    shift 3 # restore original $@ argument set
+    shift 3 # restore the original $@ argument-set
     if [[ ! -e $executable ]]; then
         executable="$(which ${executable})"
     fi
     if [[ ! -x $executable ]]; then
-        echo "» [ERROR] bad python interpreter: ${executable}"
+        echo "» [ERROR] bad Python interpreter: ${executable}"
+        return 1
+    fi
+    if [[ ! -r $replenv ]]; then
+        echo "» [ERROR] unknown REPL env setup: ${replenv}"
         return 1
     fi
     if [[ $PYTHONPATH ]]; then
@@ -266,9 +303,25 @@ function bpy3 () {
     python_module_run $pyname $modname --config=${config} $@
 }
 
+function bpypy3 () {
+    pyversion="3"
+    pyname="pypy${pyversion}"
+    modname="bpython"
+    config="${configdir}/${modname}/config.py${pyversion}"
+    python_module_run $pyname $modname --config=${config} $@
+}
+
 function bpy2 () {
     pyversion="2"
     pyname="python${pyversion}"
+    modname="bpython"
+    config="${configdir}/${modname}/config.py${pyversion}"
+    python_module_run $pyname $modname --config=${config} $@
+}
+
+function bpypy2 () {
+    pyversion="2"
+    pyname="pypy"
     modname="bpython"
     config="${configdir}/${modname}/config.py${pyversion}"
     python_module_run $pyname $modname --config=${config} $@
@@ -313,7 +366,7 @@ function gitwat () {
 }
 
 function repy () {
-    # usage:
+    # Usage:
     # $ repy numpy      <-- forces a reinstall of numpy, using pip
     if [ "$1" ]; then
         echo "[repy] Reinstalling ${1}…"
@@ -330,7 +383,15 @@ function xmlpp () {
 }
 
 function glog () {
-    git log --pretty=oneline --graph --abbrev-commit --branches --remotes --all --cherry-mark --full-history $@
+    git log \
+        --pretty=oneline \
+        --graph \
+        --abbrev-commit \
+        --branches \
+        --remotes \
+        --all \
+        --cherry-mark \
+        --full-history $@
 }
 
 function yo () {
@@ -344,7 +405,7 @@ function yo () {
 
 function yoyo () {
     
-    upth="${1:?» file path or command name expected}"
+    upth="${1:?» File path or command name expected}"
     
     if [[ ! -e "${upth}" ]]; then
         # argument is not an existant path,
@@ -352,7 +413,7 @@ function yoyo () {
         if [[ -x $(which $upth) ]]; then
             # found a command named by $upth --
             # reassign with the command’s file path:
-            echo "» command: ${upth}"
+            echo "» Command: ${upth}"
             upth=$(which $upth)
         fi
     fi
@@ -360,14 +421,14 @@ function yoyo () {
     if [[ -e "${upth}" ]]; then
         
         pth=$(realpath "${upth}")
-        echo "» path: ${pth}"
+        echo "» Path: ${pth}"
         if [[ $pth != $upth ]]; then
-            echo "» from: ${upth}"
+            echo "» From: ${upth}"
         fi
         
         if [[ ! -d $pth ]]; then
             echo ""
-            gls --color=auto -lshF "${pth}"
+            ${gls} -lshF "${pth}"
         fi
         
         # echo "» `hfsdata -{k,A,o}` results for ${pth}"
@@ -406,8 +467,8 @@ function yoyo () {
     
     else
         # could not find a useable file path based on input:
-        echo "» file path or command name expected"
-        echo "» argument passed was “${upth}”"
+        echo "» File path or command name expected"
+        echo "» Argument passed was “${upth}”"
     
     fi
     
@@ -416,7 +477,7 @@ function yoyo () {
 }
 
 function see () {
-    upth="${1:?» file path or command name expected}"
+    upth="${1:?» File path or command name expected}"
     
     if [[ ! -e "${upth}" ]]; then
         # argument is not an existant path,
@@ -436,7 +497,7 @@ function see () {
         more $upth
     else
         # it’s a directory: list it:
-        gls --color=auto -sF $upth
+        ${gls} -sF $upth
     fi
 }
 
@@ -471,7 +532,7 @@ function anybar () {
     fi
 }
 
-# virtualenvwrapper. http://www.doughellmann.com/docs/virtualenvwrapper/
+# Virtualenvwrapper: http://www.doughellmann.com/docs/virtualenvwrapper/
 export WORKON_HOME="${homedir}/Praxa"
 export PIP_RESPECT_VIRTUALENV=true
 export VIRTUALENVWRAPPER_PYTHON="${localopt}/python/libexec/bin/python"
@@ -500,8 +561,7 @@ export HOMEBREW_EDITOR="${localbin}/mate"
 export HOMEBREW_CURL="${localbin}/curl"
 export HOMEBREW_GIT="${localbin}/git"
 
-# without this next command,
-# postgres makes everything freak out
+# Without this next command, postgres makes things freak out:
 ulimit -n 4096
 
 # Allow `more`/`less`/`most` to recognize ANSI colors in I/O:
@@ -509,7 +569,7 @@ export MANPAGER="most"
 export PAGER="less"
 export LESS="-r"
 
-# homebrew bash completion!
+# Homebrew bash completion!
 homebrew_completion="$(brew --prefix)/etc/bash_completion"
 if [[ -f $homebrew_completion ]]; then
     source $homebrew_completion
@@ -520,5 +580,5 @@ fi
 # q.v. https://help.github.com/articles/telling-git-about-your-gpg-key/
 export GPG_TTY=$(tty)
 
-eval "$(gdircolors ~/.dircolors/dircolors.256dark)"
-eval "$(direnv hook bash)"
+eval "$(gdircolors ~/.dircolors/dircolors.256dark)" # Configure `dircolors` scheme
+eval "$(direnv hook bash)"                          # Configure `direnv` Bash hook
