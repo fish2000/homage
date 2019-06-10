@@ -14,6 +14,9 @@ MAXINT = getattr(sys, 'maxint',
 # Determine if we’re on PyPy:
 PYPY = hasattr(sys, 'pypy_version_info')
 
+# Determine if we’re in TextMate:
+TEXTMATE = 'TM_PYTHON' in os.environ
+
 import io, re, six
 import argparse
 import array
@@ -479,8 +482,14 @@ attr = lambda thing, *attrs: accessor(or_none, thing, *attrs)
 pyattr = lambda thing, *attrs: accessor(getpyattr, thing, *attrs)
 item = lambda thing, *items: accessor(getitem, thing, *items)
 
-# is something in a class? regardless of whether it uses __dict__ or __slots__?
-class_has = lambda thing, atx: atx in (pyattr(thing, 'dict', 'slots') or tuple())
+# Does a class contain an attribute -- whether it uses `__dict__` or `__slots__`?
+thing_has = lambda thing, atx: atx in (pyattr(thing, 'dict', 'slots') or tuple())
+class_has = lambda cls, atx: isclasstype(cls) and thing_has(cls, atx)
+
+# Is this a class based on a `__dict__`, or one using `__slots__`?
+isslotted = lambda thing: allpyattrs('mro', 'slots')
+isdictish = lambda thing: allpyattrs('mro', 'dict')
+isslotdicty = lambda thing: allpyattrs('mro', 'slots', 'dict')
 
 @export
 def slots_for(cls):
@@ -720,7 +729,7 @@ def thingname(original, *modules):
         in the context of a module in which it resides
     """
     inquestion = id(original)
-    for module in uniquify(*modules):
+    for module in frozenset(modules):
         for key, thing in itermodule(module):
             if id(thing) == inquestion:
                 return key
@@ -757,7 +766,7 @@ def thingname_search_by_id(thingID):
     # on my system, like on all my REPLs, uniquifying the modules
     # winnowed the module list (and therefore, this functions’
     # search space) by around 100 fucking modules (!) every time!!
-    for module in uniquify(*sys.modules.values()):
+    for module in frozenset(sys.modules.values()):
         for key, valueID in itermoduleids(module):
             if valueID == thingID:
                 return module, key
@@ -810,40 +819,47 @@ else:
 
 
 # THE MODULE EXPORTS:
-export(ExportError,     name='ExportError', doc="An exception raised during a call to export()")
-export(ExportWarning,   name='ExportWarning', doc="A warning issued during a call to export()")
-export(NoDefault,       name='NoDefault',   doc="A singleton class with no value, used to represent a lack of a default value")
+export(ExportError,     name='ExportError',     doc="An exception raised during a call to export()")
+export(ExportWarning,   name='ExportWarning',   doc="A warning issued during a call to export()")
+export(NoDefault,       name='NoDefault',       doc="A singleton class with no value, used to represent a lack of a default value")
 
 export(doctrim,         name='doctrim')
-export(ismetaclass,     name='ismetaclass', doc="ismetaclass(thing) → boolean predicate, True if thing is a class, descending from `type`")
-export(isclass,         name='isclass',     doc="isclass(thing) → boolean predicate, True if thing is a class, descending from `object`")
-export(isclasstype,     name='isclasstype', doc="isclasstype(thing) → boolean predicate, True if thing is a class, descending from either `object` or `type`")
+export(ismetaclass,     name='ismetaclass',     doc="ismetaclass(thing) → boolean predicate, True if thing is a class, descending from `type`")
+export(isclass,         name='isclass',         doc="isclass(thing) → boolean predicate, True if thing is a class, descending from `object`")
+export(isclasstype,     name='isclasstype',     doc="isclasstype(thing) → boolean predicate, True if thing is a class, descending from either `object` or `type`")
 
-export(haspyattr,       name='haspyattr',   doc="haspyattr(thing, attribute) → boolean predicate, shortcut for hasattr(thing, '__%s__' % attribute)")
-export(anyattrs,        name='anyattrs',    doc="anyattrs(thing, *attributes) → boolean predicate, shortcut for any(hasattr(thing, atx) for atx in attributes)")
-export(allattrs,        name='allattrs',    doc="allattrs(thing, *attributes) → boolean predicate, shortcut for all(hasattr(thing, atx) for atx in attributes)")
-export(anypyattrs,      name='anypyattrs',  doc="anypyattrs(thing, *attributes) → boolean predicate, shortcut for any(haspyattr(thing, atx) for atx in attributes)")
-export(allpyattrs,      name='allpyattrs',  doc="allpyattrs(thing, *attributes) → boolean predicate, shortcut for all(haspyattr(thing, atx) for atx in attributes)")
-export(isiterable,      name='isiterable',  doc="isiterable(thing) → boolean predicate, True if thing can be iterated over")
-export(ismergeable,     name='ismergeable', doc="ismergeable(thing) → boolean predicate, True if thing is a valid operand to merge(…) or merge_as(…)")
+export(haspyattr,       name='haspyattr',       doc="haspyattr(thing, attribute) → boolean predicate, shortcut for hasattr(thing, '__%s__' % attribute)")
+export(anyattrs,        name='anyattrs',        doc="anyattrs(thing, *attributes) → boolean predicate, shortcut for any(hasattr(thing, atx) for atx in attributes)")
+export(allattrs,        name='allattrs',        doc="allattrs(thing, *attributes) → boolean predicate, shortcut for all(hasattr(thing, atx) for atx in attributes)")
+export(anypyattrs,      name='anypyattrs',      doc="anypyattrs(thing, *attributes) → boolean predicate, shortcut for any(haspyattr(thing, atx) for atx in attributes)")
+export(allpyattrs,      name='allpyattrs',      doc="allpyattrs(thing, *attributes) → boolean predicate, shortcut for all(haspyattr(thing, atx) for atx in attributes)")
+export(isiterable,      name='isiterable',      doc="isiterable(thing) → boolean predicate, True if thing can be iterated over")
+export(ismergeable,     name='ismergeable',     doc="ismergeable(thing) → boolean predicate, True if thing is a valid operand to merge(…) or merge_as(…)")
 
-export(no_op,           name='no_op',       doc="no_op(thing, attribute, default=None) → shortcut for (attribute or default)")
-export(or_none,         name='or_none',     doc="or_none(thing, attribute) → shortcut for getattr(thing, attribute, None)")
-export(getpyattr,       name='getpyattr',   doc="getpyattr(thing, attribute[, default]) → shortcut for getattr(thing, '__%s__' % attribute[, default])")
-export(getitem,         name='getitem',     doc="getitem(thing, item[, default]) → shortcut for thing.get(item[, default])")
-export(accessor,        name='accessor',    doc="accessor(func, thing, *attributes) → return the first non-None value had by successively applying func(thing, attribute)")
-export(attr,            name='attr',        doc="Return the first existing attribute from a thing, given 1+ attribute names")
-export(pyattr,          name='pyattr',      doc="Return the first existing __special__ attribute from a thing, given 1+ attribute names")
-export(item,            name='item',        doc="Return the first existing item held by thing, given 1+ item names")
-export(class_has,       name='class_has',   doc="class_has(thing, attribute) → boolean predicate, True if thing has the attribute (regardless of using __dict__ or __slots__)")
+export(no_op,           name='no_op',           doc="no_op(thing, attribute[, default]) → shortcut for (attribute or default)")
+export(or_none,         name='or_none',         doc="or_none(thing, attribute) → shortcut for getattr(thing, attribute, None)")
+export(getpyattr,       name='getpyattr',       doc="getpyattr(thing, attribute[, default]) → shortcut for getattr(thing, '__%s__' % attribute[, default])")
+export(getitem,         name='getitem',         doc="getitem(thing, item[, default]) → shortcut for thing.get(item[, default])")
+export(accessor,        name='accessor',        doc="accessor(func, thing, *attributes) → return the first non-None value had by successively applying func(thing, attribute)")
+export(attr,            name='attr',            doc="Return the first existing attribute from a thing, given 1+ attribute names")
+export(pyattr,          name='pyattr',          doc="Return the first existing __special__ attribute from a thing, given 1+ attribute names")
+export(item,            name='item',            doc="Return the first existing item held by thing, given 1+ item names")
+
+export(thing_has,       name='thing_has',       doc="thing_has(thing, attribute) → boolean predicate, True if thing has the attribute (in either __dict__ or __slots__)")
+export(class_has,       name='class_has',       doc="class_has(cls, attribute) → boolean predicate, True if cls is a class type and has the attribute (in either __dict__ or __slots__)")
+export(isslotted,       name='isslotted',       doc="isslotted(thing) → boolean predicate, True if thing has both an __mro__ and a __slots__ attribute")
+export(isdictish,       name='isdictish',       doc="isdictish(thing) → boolean predicate, True if thing has both an __mro__ and a __dict__ attribute")
+export(isslotdicty,     name='isslotdicty',     doc="isslotdicty(thing) → boolean predicate, True if thing has __mro__, __slots__, and __dict__ attributes")
 
 # NO DOCS ALLOWED:
-export(PYPY,            name='PYPY')
-export(MAXINT,          name='MAXINT')
-export(LAMBDA,          name='LAMBDA')
 export(BUILTINS,        name='BUILTINS')
-export(VERBOTEN,        name='VERBOTEN')
+export(DEBUG,           name='DEBUG')
+export(LAMBDA,          name='LAMBDA')
+export(MAXINT,          name='MAXINT')
+export(PYPY,            name='PYPY')
 export(QUALIFIER,       name='QUALIFIER')
+export(TEXTMATE,        name='TEXTMATE')
+export(VERBOTEN,        name='VERBOTEN')
 
 export(types,           name='types',       doc=""" A Namespace instance containing aliases into the `types` module,
                                                     sans the irritating and lexically unnecessary “Type” suffix --

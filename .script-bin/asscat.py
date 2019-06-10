@@ -31,11 +31,12 @@ Usage:
   
 Arguments:
   SOURCE                                source image file(s), in a format or
-                                        formats that PIL or Pillow can decode.
+                                        formats that PIL/Pillow can decode.
   
 Options:
   -d DIRECTORY --destination=DIRECTORY  destination directory [default: $PWD].
-  -s SIZE --size=SIZE                   size (1x/2x/3x) of inputs [default: 3x].
+  -s SIZE --size=SIZE                   size (1x/2x/3x) of inputs, must be equal to
+                                        √1, √4, or √9 [default: 3x].
   -i METHOD --interpolation=METHOD      interpolation method; one of either:
                                        “box”, “bilinear”, “bicubic”, “hamming”,
                                        “lanczos”, or “nearest” — q.v. the Pillow
@@ -283,17 +284,50 @@ def sanitize(text):
     return sanitized
 
 # Regular expression compiler shortcut:
-regex = lambda string: re.compile(string, re.MULTILINE)
+sanitize.re = lambda string: re.compile(string, re.MULTILINE)
 
 # Sanitization regexes and their replacement strings:
 sanitize.sanitizers = (
-    (regex(r"[“”]"), '"'),
-    (regex(r"[‘’]"), "'"),
-    (regex(r"[«»]"), ":"),
-    (regex(r"…"), "..."),
-    (regex(r"ö"), "o"),
-    (regex(r"©"), "(c)"),
-    (regex(r"—"), "-"))
+    (sanitize.re(r"[“”]"),              '"'),
+    (sanitize.re(r"[‘’]"),              "'"),
+    (sanitize.re(r"[«»]"),              ":"),
+    (sanitize.re(r"[äáª]"),             "a"),
+    (sanitize.re(r"[ëé]"),              "e"),
+    (sanitize.re(r"[ïí]"),              "i"),
+    (sanitize.re(r"[öóº]"),             "o"),
+    (sanitize.re(r"[üú]"),              "u"),
+    (sanitize.re(r"‽"),                 "?!"),
+    (sanitize.re(r"¡"),                 "!"),
+    (sanitize.re(r"¿"),                 "?"),
+    (sanitize.re(r"±"),                 "+/-"),
+    (sanitize.re(r"÷"),                 "/"),
+    (sanitize.re(r"•"),                 "*"),
+    (sanitize.re(r"ˆ"),                 "^"),
+    (sanitize.re(r"†"),                 "<*>"),
+    (sanitize.re(r"‡"),                 "<**>"),
+    (sanitize.re(r"§"),                 "$"),
+    (sanitize.re(r"¥"),                 "Y"),
+    (sanitize.re(r"¢"),                 "c"),
+    (sanitize.re(r"ƒ"),                 "f"),
+    (sanitize.re(r"∫"),                 "S"),
+    (sanitize.re(r"ß"),                 "ss"),
+    (sanitize.re(r"ﬂ"),                 "fl"),
+    (sanitize.re(r"ﬁ"),                 "fi"),
+    (sanitize.re(r"£"),                 "lb."),
+    (sanitize.re(r""),                 "Apple"),
+    (sanitize.re(r"⌘"),                 "command"),
+    (sanitize.re(r"∞"),                 "infinity"),
+    (sanitize.re(r'√(?P<arg>[\w\d]*)'), 'sqrt(\g<arg>)'),
+    (sanitize.re(r"¶"),                 "[P]"),
+    (sanitize.re(r"[∂∆]"),              "d"),
+    (sanitize.re(r"Ø"),                 "0"),
+    (sanitize.re(r"→"),                 "->"),
+    (sanitize.re(r"¬"),                 "-]"),
+    (sanitize.re(r"…"),                 "..."),
+    (sanitize.re(r"©"),                 "(c)"),
+    (sanitize.re(r"®"),                 "(r)"),
+    (sanitize.re(r"™"),                 "(tm)"),
+    (sanitize.re(r"—"),                 "-"))
 
 @keyed
 def show_sanitized_help():
@@ -670,10 +704,11 @@ def main(debug=False):
     
     # Execute main entry point, catching exceptions:
     try:
-        cli(sys.argv, debug=debug)
+        # cli(sys.argv, debug=debug)
         # cli(['asscat.py', '--show-valid-sizes'], debug=debug)
         # cli(['asscat.py', '--show-interpolation-methods'], debug=debug)
         # cli(['asscat.py', '--show-save-options'], debug=debug)
+        cli(['asscat.py', '--show-sanitized-help'], debug=debug)
     except ArgumentError:
         error("bad arguments passed:")
         raise

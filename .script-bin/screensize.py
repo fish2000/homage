@@ -32,7 +32,7 @@ Returns:
   JSON-formatted screen information.
 
 Notes:
-  ‡ ANSI syntax highlighting equires Pygments.
+  ‡ ANSI syntax highlighting requires Pygments.
 """
 from __future__ import print_function, unicode_literals
 
@@ -174,9 +174,9 @@ def screensize(*, screen_idx=0):
     # Return the output dict:
     return screen_info
 
-def to_json(dictionary, **options):
+def to_json(dictionary, options='release'):
     """ Format a JSON dictionary as a string, with options """
-    return json.dumps(dictionary, **options)
+    return json.dumps(dictionary, **to_json.options.get(options))
 
 # Set up formatting options:
 to_json.options = {}
@@ -200,16 +200,16 @@ def print_color(text, color='', reset=None):
         print(color + line, sep='')
     print(reset or colorama.Style.RESET_ALL, end='')
 
-def highlight(json_string, language='json',
+def highlight(code_string, language='json',
                              markup='terminal256',
                               style='paraiso-dark'):
-    """ Highlight a JSON string with inline 256-color ANSI markup,
+    """ Highlight a code string with inline 256-color ANSI markup,
         using `pygments.highlight(…)` and the “Paraiso Dark” theme
     """
     import pygments, pygments.lexers, pygments.formatters
     LexerCls = pygments.lexers.find_lexer_class_by_name(language)
     formatter = pygments.formatters.get_formatter_by_name(markup, style=style)
-    return pygments.highlight(json_string, lexer=LexerCls(), formatter=formatter)
+    return pygments.highlight(code_string, lexer=LexerCls(), formatter=formatter)
 
 VERSION = u'screensize.py 0.1.0 © 2019 Alexander Böhn / OST, LLC'
 
@@ -242,15 +242,14 @@ def main(argv=None, debug=False):
     # Call `screensize()`, returning the screen info dict:
     screen_info = screensize()
     
-    # Set JSON options -- format for readability when debugging:s
-    options = debug and to_json.options['debug'] \
-                     or to_json.options['release']
+    # Set JSON options -- format for readability when debugging:
+    options = debug and 'debug' or 'release'
     
     # JSON-ify and print the info dict to stdout:
     if ansi:
-        print_color(highlight(to_json(screen_info, **options)))
+        print_color(highlight(to_json(screen_info, options=options)))
     else:
-        print(to_json(screen_info, **options), file=sys.stdout)
+        print(to_json(screen_info, options=options), file=sys.stdout)
     
     # All is well, return to zero:
     return 0
