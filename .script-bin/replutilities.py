@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 from __future__ import print_function
+from itertools import chain
 import sys, os
 
 # Are we debuggin out?
@@ -21,24 +22,26 @@ import decimal
 import warnings
 
 try:
-    from collections.abc import Hashable as HashableABC
+    from collections.abc import MutableMapping, Hashable as HashableABC
 except ImportError:
-    from collections import Hashable as HashableABC
+    from collections import MutableMapping, Hashable as HashableABC
 
 try:
     from importlib.util import cache_from_source
 except ImportError:
+    # As far as I can tell, this is what Python 2.x does:
     cache_from_source = lambda pth: pth + 'c'
 
 try:
     from functools import lru_cache
 except ImportError:
-    def lru_cache(**kwargs):
+    def lru_cache(**keywrds):
         """ No-op dummy decorator for lesser Pythons """
-        def inner(function):
+        def inside(function):
             return function
-        return inner
+        return inside
 
+# Q.v. `thingname_search_by_id(…)` function sub.
 cache = lru_cache(maxsize=256, typed=False)
 
 try:
@@ -119,14 +122,15 @@ def determine_name(thing, name=None, try_repr=False):
 LAMBDA = determine_name(lambda: None)
 
 ismetaclass = lambda thing: hasattr(thing, '__mro__') and \
-                     thing.__mro__[-2] is type
+                                len(thing.__mro__) > 1 and \
+                                    thing.__mro__[-2] is type
 
-isclass = lambda thing: hasattr(thing, '__mro__') and \
-                 thing.__mro__[-1] is object and \
-                 thing.__mro__[-2] is not type
+isclass = lambda thing: (thing is object) or (hasattr(thing, '__mro__') and \
+                         thing.__mro__[-1] is object and \
+                         thing.__mro__[-2] is not type)
 
 isclasstype = lambda thing: hasattr(thing, '__mro__') and \
-                     thing.__mro__[-1] is object
+                                    thing.__mro__[-1] is object
 
 class ExportError(NameError):
     pass
@@ -139,7 +143,7 @@ class NoDefault(object):
     def __new__(cls, *a, **k):
         return cls
 
-class Exporter(object):
+class Exporter(MutableMapping):
     
     """ A class representing a list of things for a module to export. """
     __slots__ = ('__exports__',)
@@ -192,6 +196,15 @@ class Exporter(object):
     def __bool__(self):
         return len(self.__exports__) > 0
     
+    def __call__(self):
+        """ Exporter instances are callable, for use in __all__ and __dir__() definitions """
+        return tuple(self.keys())
+    
+    def dir_function(self):
+        return list(self.keys())
+    
+    message = "Can’t set __export_name__ for thing “%s” of type %s:"
+    
     def export(self, thing, name=None, doc=None):
         """ Add a function -- or any object, really -- to the export list.
             Exported items will end up wih their names in the modules’
@@ -208,12 +221,12 @@ class Exporter(object):
                 
                 @export
                 def yo_dogg(i_heard=None):
-                    ...
+                    …
                 
             … or manually, to export anything that doesn’t have a name:
                 
-                yo_dogg = lambda i_heard=None: ...
-                dogg_heard_index = ( ... ) 
+                yo_dogg = lambda i_heard=None: …
+                dogg_heard_index = ( ¬ ) 
                 
                 export(yo_dogg,             name="yo_dogg")
                 export(dogg_heard_index,    name="dogg_heard_index")
@@ -251,23 +264,26 @@ class Exporter(object):
                 thing.__doc__ = doctrim(doc)
             except (AttributeError, TypeError):
                 typename = determine_name(type(thing))
-                message = "Can’t set the docstring for thing “%s” of type %s:" % (named, typename)
-                warnings.warn(message, ExportWarning, stacklevel=2)
+                warnings.warn(self.message % (named, typename),
+                              ExportWarning, stacklevel=2)
         
         # Stow the item in the global __exports__ dict:
         self.__exports__[named] = thing
         
-        # Attempt to assign our name as a private attribute
-        # on the item -- q.v. __doc__ note supra.
+        # N.B. We don’t set `__export_name__` on class or metaclass things,
+        # because we don’t want all of their derived types or instances
+        # to inherit it:
         if not isclasstype(thing):
+            # Attempt to assign our name as a private attribute
+            # on the item -- q.v. __doc__ note supra.
             if not hasattr(thing, '__export_name__'):
                 try:
                     thing.__export_name__ = named
                 except (AttributeError, TypeError):
                     if DEBUG:
                         typename = determine_name(type(thing))
-                        message = "Can’t set __export_name__ for thing “%s” of type %s:" % (named, typename)
-                        warnings.warn(message, ExportWarning, stacklevel=2)
+                        warnings.warn(self.message % (named, typename),
+                                      ExportWarning, stacklevel=2)
         
         # Return the thing, unchanged (that’s how we decorate).
         return thing
@@ -344,7 +360,7 @@ def asdict(thing):
     """ asdict(thing) → returns either thing, thing.__dict__, or dict(thing) as necessary """
     if isinstance(thing, dict):
         return thing
-    if hasattr(thing, '__dict__'):
+    if haspyattr(thing, 'dict'):
         return thing.__dict__
     return dict(thing)
 
@@ -378,7 +394,7 @@ class SimpleNamespace(object):
         return self.__dict__ != asdict(other)
 
 @export
-class Namespace(SimpleNamespace):
+class Namespace(SimpleNamespace, MutableMapping):
     
     """ Namespace adds the `get(…)`, `__len__()`, `__contains__(…)`, `__getitem__(…)`,
         `__setitem__(…)`, `__add__(…)`, and `__bool__()` methods to its ancestor class
@@ -463,6 +479,19 @@ attr = lambda thing, *attrs: accessor(or_none, thing, *attrs)
 pyattr = lambda thing, *attrs: accessor(getpyattr, thing, *attrs)
 item = lambda thing, *items: accessor(getitem, thing, *items)
 
+# is something in a class? regardless of whether it uses __dict__ or __slots__?
+class_has = lambda thing, atx: atx in (pyattr(thing, 'dict', 'slots') or tuple())
+
+@export
+def slots_for(cls):
+    """ Get the summation of the `__slots__` tuples for a class and its ancestors """
+    # q.v. https://stackoverflow.com/a/6720815/298171
+    if not haspyattr(cls, 'mro'):
+        return tuple()
+    return tuple(chain.from_iterable(
+                 getpyattr(ancestor, 'slots', tuple()) \
+                           for ancestor in cls.__mro__))
+
 @export
 def nameof(thing, fallback=''):
     """ Get the name of a thing, according to either:
@@ -534,7 +563,7 @@ def graceful_issubclass(thing, *cls_or_tuple):
 
 predicatenop = lambda *things: None
 
-isabstractmethod = lambda method: getattr(method, '__isabstractmethod__', False)
+isabstractmethod = lambda method: getpyattr(method, 'isabstractmethod', False)
 isabstract = lambda thing: bool(pyattr(thing, 'abstractmethods', 'isabstractmethod'))
 isabstractcontextmanager = lambda cls: graceful_issubclass(cls, contextlib.AbstractContextManager)
 iscontextmanager = lambda cls: allpyattrs(cls, 'enter', 'exit') or isabstractcontextmanager(cls)
@@ -630,7 +659,6 @@ def qualified_import(qualified):
     """ Import a qualified thing-name.
         e.g. 'instakit.processors.halftone.FloydSteinberg'
     """
-    # qualified.replace("%s%s" % (QUALIFIER, head), '')
     import importlib
     if QUALIFIER not in qualified:
         raise ValueError("qualified name required (got %s)" % qualified)
@@ -686,16 +714,6 @@ def moduleids(module):
         out[id(thing)] = (key, thing)
     return out
 
-def itermoduleids(module):
-    """ Internal function to get an iterable of `(name, id(thing))`
-        tuples for all things comntained in a given module – q.v.
-        `itermodule(…)` implementation supra.
-    """
-    keys = tuple(key for key in dir(module) \
-                      if key not in BUILTINS)
-    ids = (id(getattr(module, key)) for key in keys)
-    return zip(keys, ids)
-
 @export
 def thingname(original, *modules):
     """ Find the name of a thing, according to what it is called
@@ -707,6 +725,16 @@ def thingname(original, *modules):
             if id(thing) == inquestion:
                 return key
     return None
+ 
+def itermoduleids(module):
+    """ Internal function to get an iterable of `(name, id(thing))`
+        tuples for all things comntained in a given module – q.v.
+        `itermodule(…)` implementation supra.
+    """
+    keys = tuple(key for key in dir(module) \
+                      if key not in BUILTINS)
+    ids = (id(getattr(module, key)) for key in keys)
+    return zip(keys, ids)
 
 @cache
 def thingname_search_by_id(thingID):
@@ -807,6 +835,7 @@ export(accessor,        name='accessor',    doc="accessor(func, thing, *attribut
 export(attr,            name='attr',        doc="Return the first existing attribute from a thing, given 1+ attribute names")
 export(pyattr,          name='pyattr',      doc="Return the first existing __special__ attribute from a thing, given 1+ attribute names")
 export(item,            name='item',        doc="Return the first existing item held by thing, given 1+ item names")
+export(class_has,       name='class_has',   doc="class_has(thing, attribute) → boolean predicate, True if thing has the attribute (regardless of using __dict__ or __slots__)")
 
 # NO DOCS ALLOWED:
 export(PYPY,            name='PYPY')
@@ -863,8 +892,8 @@ export(Exporter)                            # hahaaaaa
 export(None,            name='exporter')    # in name only
 export(None,            name='__all__')     # in name only
 
-__all__ = tuple(exporter.keys())
-__dir__ = lambda: list(__all__)
+__all__ = exporter()
+__dir__ = exporter.dir_function
 
 def test():
     from pprint import pprint
@@ -968,9 +997,9 @@ def test():
     print(doctrim(type(types).__doc__))
     print_separator()
     
-    # print('type(types).__export_name__ =', type(types).__export_name__)
-    # print_separator()
-    # print()
+    print('slots_for(type(types)) =', slots_for(type(types)))
+    print_separator()
+    print()
     
     print("» Checking “haspyattr.__doc__ …”")
     print()

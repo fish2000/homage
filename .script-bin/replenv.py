@@ -233,10 +233,9 @@ __all__ = ('Image',
                             'banner_color',
            'modules')
 
+now = datetime.datetime.now
 python2_expires = 'January 1st, 2020'
-# is_python2_dead = datetime.datetime.now() >= dateutil.parser.parse(python2_expires)
-is_python2_dead = datetime.datetime.now() >= datetime.datetime.now().strptime(python2_expires,
-                                                                             '%B %dst, %Y')
+is_python2_dead = now() >= now().strptime(python2_expires, '%B %dst, %Y')
 
 try:
     from functools import reduce

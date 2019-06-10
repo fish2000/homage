@@ -131,17 +131,17 @@ def screensize(*, screen_idx=0):
     
     # Gather dimension data from the specified screen,
     # using the public NSScreen API:
-    devpixels = screen.devicePixelCounts()      # NSRect of the raw pixel counts
+    devpixels = screen.devicePixelCounts()      # NSSize of the raw pixel counts
     visible = screen.visibleFrame()             # NSRect of the “visible” frame (?)
     frame = screen.frame()                      # NSRect of the screen frame
-    depth = screen.depth()                      # Not sure what this is actually
+    depth = screen.depth()                      # Int -- not sure what this is actually
     
     # Gather additional data from the specified screen,
     # from private and/or undocumented methods:
     settings = screen._currentSetting()         # Giant, miscellaneous info-dump
     displayID = screen._displayID()             # Internal Objective-C target ID
     menuBarHeight = screen._menuBarHeight()     # Height of the menu bar, like duh
-    resolution = screen._resolution()           # Like as in DPI
+    resolution = screen._resolution()           # NSSize, like as in DPI
     
     # Build an output dict stuffed with everything
     # we got back from the NSScreen instances:

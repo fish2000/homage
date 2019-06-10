@@ -1,5 +1,44 @@
 #!/usr/bin/env bash
 
+# HOMEBREW PACKAGES REQUIRED BY THE SHIT IN THIS FILE:
+# • Bash
+# • Python, Python@2
+# • PyPy, PyPy3
+# • Ruby
+# • NodeJS
+# • Go
+# • pkg-config
+# • man-db (also recommended: stdman)
+# • most
+# • dircolors/gdircolors
+# • figlet
+# • wget
+# • Curl
+# • Emacs
+# • Autogen (for `columns`; see below)
+# • Coreutils
+# • OSXUtils
+# • file-formula
+# • PostgreSQL
+# • Git
+# • git-utils
+# • lorem
+# • youtube-dl
+# • direnv
+
+# HOMEBREW CASKS REQUIRED BY THE SHIT IN THIS FILE:
+# • Java
+# • MacTeX
+# • AnyBar
+
+# PYTHON MODULES REQUIRED BY THE SHIT IN THIS FILE:
+# • pythonpy
+# • Pygments
+# • bpython
+# • ipython
+# • ptpython
+# • httpie
+
 # HISTORY: I have been doomed to repeat it.
 export HISTIGNORE="\
 &:\
@@ -7,15 +46,16 @@ export HISTIGNORE="\
 exit:\
 *>|*:\
 *rm*-rf*:\
-*brew*home*"            # keep bad shit out of history
-shopt -s histappend     # append history rather than overwrite
-shopt -s cmdhist        # one command per line
+*brew*cask*home*:\
+*brew*home*"                    # keep bad shit out of history
+shopt -s histappend             # append history rather than overwrite
+shopt -s cmdhist                # one command per line
 
 unset HISTFILESIZE
 export HISTSIZE=1000000
 export SAVEHIST=999999
-export HISTCONTROL=ignoreboth                  # ignore dupes AND lines starting with spaces
-export HISTTIMEFORMAT='%F %T '                 # add the full date and time to lines
+export HISTCONTROL=ignoreboth   # ignore dupes AND lines starting with spaces
+export HISTTIMEFORMAT='%F %T '  # add the full date and time to lines
 
 # So, LET'S DANCE!!
 homedir="/Users/${USER}"
@@ -34,15 +74,17 @@ export ORIGINAL_PATH="${PATH}"
 export PATH="\
 ${localopt}/python/libexec/bin:\
 ${localopt}/ruby/bin:\
+${homedir}/.gem/ruby/2.3.0/bin:\
 ${localopt}/go/bin:\
 ${scriptbin}:\
 ${localbin}:\
 /usr/local/sbin:\
+/Library/TeX/texbin:\
 ${MINIMAL_PATH}"
 
 export NODE_PATH="\
-/usr/local/opt/node/libexec/lib/node_modules:\
-${nodemodules}:
+${localopt}/node/libexec/lib/node_modules:\
+${nodemodules}:\
 ${NODE_PATH}"
 
 export GOPATH="\
@@ -51,11 +93,12 @@ ${localopt}/go:\
 ${GOPATH}"
 
 export PKG_CONFIG_PATH="\
-/opt/X11/lib/pkgconfig:\
+${localopt}/python/lib/pkgconfig:\
 /usr/local/lib/pkgconfig:\
+/opt/X11/lib/pkgconfig:\
 ${PKG_CONFIG_PATH}"
 
-export EDITOR="${localbin}/emacs --no-window-system"
+export EDITOR="${localbin}/emacs"
 export PGDATA="/usr/local/var/postgres/ost2"
 export XML_CATALOG_FILES="/usr/local/etc/xml/catalog"
 export JAVA_HOME=`/usr/libexec/java_home`
@@ -91,6 +134,18 @@ alias mateme="mate ${homedir}/.bash_profile"
 alias lipsum="lorem -n 100 | pbcopy"
 alias emacs="${localbin}/emacs --no-window-system"
 alias siri="say -v Samantha"
+
+function fig () {
+    # text="${1:?Text string expected}"
+    # -f colossal: use the “colossal” figlet typeface
+    # -k: do “kerning” – don’t crash letterforms into one another
+    # -w `tput cols`: use the given terminal’s column width
+    #                …the figlet command is supposed to be able to
+    #                 autodetect this, but it appears not to work
+    #                 under the macOS Terminal.app for some reason
+    echo "$@" | figlet -f colossal -k -w `tput cols`
+}
+
 alias yg="youtube-dl -f mp4 --xattrs --add-metadata"
 alias sg="youtube-dl -f mp3 --xattrs --embed-thumbnail --add-metadata"
 alias ag="youtube-dl -f mp4 -x --audio-format mp3 --audio-quality 256K --xattrs --embed-thumbnail --add-metadata"
@@ -182,7 +237,7 @@ function checkpath () {
     
     # Check for the named path variable (if any):
     if [[ ! ${!pathvar} ]]; then
-        echo "- Path variable ${pathvar} is unknown"
+        echo "- Path variable “${pathvar}” is unknown"
         return 1
     fi
     
@@ -192,12 +247,12 @@ function checkpath () {
     # Confirm that at least one path element is present:
     pathcount=${#pathparts[@]}
     if [[ $pathcount -lt 1 ]]; then
-        echo "- Path variable ${pathvar} contains no path elements"
+        echo "- Path variable “${pathvar}” contains no path elements"
         return 1
     fi
     
     # Iteratively check and print path elements:
-    echo "» Checking path variable ${pathvar} with ${pathcount} elements…"
+    echo "» Checking path variable “${pathvar}” with ${pathcount} elements…"
     echo ""
     for pth in "${pathparts[@]}"; do
         ([ -d "$pth" ] || [ -f "$pth" ]) && echo "    + valid: ${pth}" || echo "    -  VOID: ${pth}"
@@ -337,6 +392,14 @@ function ptpy3 () {
     python_module_run $pyname $modname --config-dir=${config} $@
 }
 
+function ptpypy3 () {
+    pyversion="3"
+    pyname="pypy${pyversion}"
+    modname="ptpython"
+    config="${configdir}/${modname}"
+    python_module_run $pyname $modname --config-dir=${config} $@
+}
+
 alias ptpy="ptpy3"
 
 function ipy3 () {
@@ -422,13 +485,13 @@ function yoyo () {
         
         pth=$(realpath "${upth}")
         echo "» Path: ${pth}"
-        if [[ $pth != $upth ]]; then
+        if [[ "${pth}" != "${upth}" ]]; then
             echo "» From: ${upth}"
         fi
         
-        if [[ ! -d $pth ]]; then
+        if [[ ! -d "${pth}" ]]; then
             echo ""
-            ${gls} -lshF "${pth}"
+            ll "${pth}"
         fi
         
         # echo "» `hfsdata -{k,A,o}` results for ${pth}"
@@ -486,18 +549,18 @@ function see () {
             # found a command named by $upth --
             # reassign with the command’s file path:
             # echo "» command: ${upth}"
-            yoyo ${upth}
+            yoyo "${upth}"
             return 0
         fi
     fi
     
     echo ""
-    if [[ ! -d $upth ]]; then
+    if [[ ! -d "${upth}" ]]; then
         # it’s not a directory: `more` thar sucker:
-        more $upth
+        more "${upth}"
     else
         # it’s a directory: list it:
-        ${gls} -sF $upth
+        l "${upth}"
     fi
 }
 
