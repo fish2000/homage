@@ -232,6 +232,10 @@ class Exporter(MutableMapping):
         out.update(self.__exports__)
         return out
     
+    def clade_histogram(self):
+        """ Return the histogram of clade counts. """
+        return Counter(self.__clades__)
+    
     def keys(self):
         """ Get a key view on the exported items dictionary. """
         return self.__exports__.keys()
@@ -246,9 +250,22 @@ class Exporter(MutableMapping):
         return self.__exports__.get(key, default)
     
     def pop(self, key, default=NoDefault):
+        if key in self.__exports__:
+            self.classify(self[key], named=key, increment=-1)
         if default is NoDefault:
             return self.__exports__.pop(key)
         return self.__exports__.pop(key, default)
+    
+    def classify(self, thing, named, increment=1):
+        """ Attempt to classify a thing by clade. """
+        try:
+            clade_name = Clade.of(thing).to_string()
+        except ValueError:
+            # no clade found
+            typename = determine_name(type(thing))
+            warnings.warn(type(self).messages['xclade'] % (named, typename),
+                          ExportWarning, stacklevel=2)
+        self.__clades__[clade_name] += int(increment)
     
     messages = {
         'docstr'    : "Can’t set the docstring for thing “%s” of type %s:",
@@ -297,15 +314,7 @@ class Exporter(MutableMapping):
             raise ExportError("can’t export an exporter instance directly")
         
         # Attempt to classify the item by clade:
-        try:
-            clade = Clade.of(thing).to_string()
-        except ValueError:
-            # no clade found
-            typename = determine_name(type(thing))
-            warnings.warn(type(self).messages['xclade'] % (named, typename),
-                          ExportWarning, stacklevel=2)
-        else:
-            self.__clades__[clade] += 1
+        self.classify(thing, named=named)
         
         # At this point, “named” is valid -- if we were passed
         # a lambda, try to rename it with either our valid name,
@@ -385,10 +394,6 @@ class Exporter(MutableMapping):
         """
         return self.dir_function, self() # OPPOSITE!
     
-    def clade_histogram(self):
-        """ Return the histogram of clade counts. """
-        return self.__clades__
-    
     def cache_info(self):
         """ Shortcut to get the CacheInfo namedtuple from the
             cached internal `thingname_search_by_id(…)` function,
@@ -458,9 +463,13 @@ class Exporter(MutableMapping):
         return self.__exports__[key]
     
     def __setitem__(self, key, value):
+        if key in self.__exports__:
+            self.classify(self[key], named=key, increment=-1)
+        self.classify(value, named=key)
         self.__exports__[key] = value
     
     def __delitem__(self, key):
+        self.classify(self[key], named=key, increment=-1)
         del self.__exports__[key]
     
     def __bool__(self):
