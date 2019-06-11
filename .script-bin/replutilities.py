@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 from __future__ import print_function
+from collections import Counter
 from itertools import chain
 import sys, os
 
@@ -25,6 +26,7 @@ import argparse
 import array
 import contextlib
 import decimal
+import enum
 import warnings
 
 # Set up some terminal-printing stuff:
@@ -131,6 +133,8 @@ def determine_name(thing, name=None, try_repr=False):
 # λ = determine_name(lambda: None)
 LAMBDA = determine_name(lambda: None)
 
+# UTILITY FUNCTIONS: boolean predicates for class types
+
 ismetaclass = lambda thing: hasattr(thing, '__mro__') and \
                                 len(thing.__mro__) > 1 and \
                                     thing.__mro__[-2] is type
@@ -141,6 +145,66 @@ isclass = lambda thing: (thing is object) or (hasattr(thing, '__mro__') and \
 
 isclasstype = lambda thing: hasattr(thing, '__mro__') and \
                                     thing.__mro__[-1] is object
+
+# UTILITY FUNCTIONS: hasattr(…) shortcuts:
+
+haspyattr = lambda thing, atx: hasattr(thing, '__%s__' % atx)
+anyattrs = lambda thing, *attrs: any(hasattr(thing, atx) for atx in attrs)
+allattrs = lambda thing, *attrs: all(hasattr(thing, atx) for atx in attrs)
+anypyattrs = lambda thing, *attrs: any(haspyattr(thing, atx) for atx in attrs)
+allpyattrs = lambda thing, *attrs: all(haspyattr(thing, atx) for atx in attrs)
+
+# Things with either __iter__(…) OR __getitem__(…) are iterable:
+isiterable = lambda thing: anypyattrs(thing, 'iter', 'getitem')
+
+# q.v. `merge_two(…)` implementation supra.
+ismergeable = lambda thing: bool(hasattr(thing, 'get') and isiterable(thing))
+
+clademap = {
+    'lambda'        : lambda thing: determine_name(thing) == LAMBDA,
+    'function'      : lambda thing: determine_name(thing) != LAMBDA and \
+                                    callable(thing) and \
+                                    anyattrs(thing, '__code__', 'func_code'),
+    'class'         : isclass,
+    'metaclass'     : ismetaclass,
+    'sequence'      : lambda thing: isinstance(thing, (tuple, list, set, frozenset, str, bytes, bytearray)),
+    'dictionary'    : lambda thing: isinstance(thing, (dict, MutableMapping)),
+    'instance'      : lambda thing: (not isclasstype(thing)) and \
+                                         isclass(type(thing))
+}
+
+@enum.unique
+class Clade(enum.Enum):
+    
+    """ An enumeration class for classifying exported types. """
+    
+    LAMBDA      = 'lambda'
+    FUNCTION    = 'function'
+    CLASS       = 'class'
+    METACLASS   = 'metaclass'
+    SEQUENCE    = 'sequence'
+    DICTIONARY  = 'dictionary'
+    INSTANCE    = 'instance'
+    
+    @classmethod
+    def of(cls, thing):
+        for clade in cls:
+            if clademap[clade.to_string()](thing):
+                return clade
+        raise ValueError("can’t determine clade for thing: %s" % determine_name(thing))
+    
+    @classmethod
+    def for_string(cls, string):
+        for clade in cls:
+            if clade.to_string() == string:
+                return clade
+        raise ValueError("for_string(): unknown clade name %s" % string)
+    
+    def to_string(self):
+        return str(self.value)
+    
+    def __str__(self):
+        return self.to_string()
 
 class ExportError(NameError):
     pass
@@ -156,10 +220,11 @@ class NoDefault(object):
 class Exporter(MutableMapping):
     
     """ A class representing a list of things for a module to export. """
-    __slots__ = pytuple('exports')
+    __slots__ = pytuple('exports', 'clades')
     
     def __init__(self):
         self.__exports__ = {}
+        self.__clades__ = Counter()
     
     def exports(self):
         """ Get a new dictionary instance filled with the exports. """
@@ -187,6 +252,7 @@ class Exporter(MutableMapping):
     
     messages = {
         'docstr'    : "Can’t set the docstring for thing “%s” of type %s:",
+        'xclade'    : "Can’t determine a clade for thing “%s” of type %s",
         'noname'    : "Can’t determine a name for lambda: 0x%0x"
     }
     
@@ -229,6 +295,17 @@ class Exporter(MutableMapping):
             raise ExportError("can’t export the __exports__ dict directly")
         if thing is self:
             raise ExportError("can’t export an exporter instance directly")
+        
+        # Attempt to classify the item by clade:
+        try:
+            clade = Clade.of(thing).to_string()
+        except ValueError:
+            # no clade found
+            typename = determine_name(type(thing))
+            warnings.warn(type(self).messages['xclade'] % (named, typename),
+                          ExportWarning, stacklevel=2)
+        else:
+            self.__clades__[clade] += 1
         
         # At this point, “named” is valid -- if we were passed
         # a lambda, try to rename it with either our valid name,
@@ -308,6 +385,10 @@ class Exporter(MutableMapping):
         """
         return self.dir_function, self() # OPPOSITE!
     
+    def clade_histogram(self):
+        """ Return the histogram of clade counts. """
+        return self.__clades__
+    
     def cache_info(self):
         """ Shortcut to get the CacheInfo namedtuple from the
             cached internal `thingname_search_by_id(…)` function,
@@ -316,12 +397,23 @@ class Exporter(MutableMapping):
         """
         return thingname_search_by_id.cache_info()
     
-    def _print_export_list(self, exports):
+    def _print_export_list(self):
         from pprint import pprint
+        exports = self.exports()
         print_separator()
-        print("EXPORTS: (length=%i)" % len(exports))
+        print("EXPORTS: (length = %i)" % len(exports))
         print()
         pprint(exports, indent=4, width=SEPARATOR_WIDTH)
+    
+    def _print_clade_histogram(self):
+        from pprint import pprint
+        clade_histogram = self.clade_histogram()
+        total = sum(clade_histogram.values())
+        unaccounted = len(self) - total
+        print_separator()
+        print("CLADE-CLASSIFICATION HISTOGRAM: (total = %i, unaccounted = %i)" % (total, unaccounted))
+        print()
+        pprint(clade_histogram)
     
     def _print_cache_info(self):
         from pprint import pprint
@@ -333,13 +425,18 @@ class Exporter(MutableMapping):
     def print_diagnostics(self, module_all, module_dir):
         """ Pretty-print the current list of exported things """
         # Sanity-check the modules’ __dir__ and __all__ attributes
+        exports = self.exports()
+        # cladehisto = self.clade_histogram()
+        
         assert list(module_all) == module_dir()
         assert len(module_all) == len(module_dir())
-        exports = self.exports()
         assert len(module_all) == len(exports)
         
         # Pretty-print the export list
-        self._print_export_list(exports)
+        self._print_export_list()
+        
+        # Pretty-print the clade histogram
+        self._print_clade_histogram()
         
         # Print the cache info
         self._print_cache_info()
@@ -466,20 +563,6 @@ def thingname_search(thing):
         uses the LRU cache from `functools`.
     """
     return thingname_search_by_id(id(thing))[1]
-
-# UTILITY FUNCTIONS: hasattr(…) shortcuts:
-
-haspyattr = lambda thing, atx: hasattr(thing, '__%s__' % atx)
-anyattrs = lambda thing, *attrs: any(hasattr(thing, atx) for atx in attrs)
-allattrs = lambda thing, *attrs: all(hasattr(thing, atx) for atx in attrs)
-anypyattrs = lambda thing, *attrs: any(haspyattr(thing, atx) for atx in attrs)
-allpyattrs = lambda thing, *attrs: all(haspyattr(thing, atx) for atx in attrs)
-
-# Things with either __iter__(…) OR __getitem__(…) are iterable:
-isiterable = lambda thing: anypyattrs(thing, 'iter', 'getitem')
-
-# q.v. `merge_two(…)` implementation supra.
-ismergeable = lambda thing: bool(hasattr(thing, 'get') and isiterable(thing))
 
 # UTILITY FUNCTIONS: getattr(…) shortcuts:
 
@@ -937,6 +1020,8 @@ export(print_separator, name='print_separator', doc="print_separator() → print
 export(pytuple,         name='pytuple',         doc="pytuple(*attrs) → turns ('do', 're', 'mi') into ('__do__', '__re__', '__mi__')")
 export(doctrim)
 export(determine_name)
+
+export(Clade)
 export(ExportError,     name='ExportError',     doc="An exception raised during a call to export()")
 export(ExportWarning,   name='ExportWarning',   doc="A warning issued during a call to export()")
 export(NoDefault,       name='NoDefault',       doc="A singleton class with no value, used to represent a lack of a default value")
@@ -1098,6 +1183,7 @@ def test_lambda_naming():
     assert lammy_name == lammy_pyattr_name
     assert lammy_name == lambda_name
     assert lammy_pyattr_name == lambda_name
+    assert determine_name(lammy) == LAMBDA
     print()
 
 def test_namespace_instance_docstring():
@@ -1222,11 +1308,6 @@ def test_qualified_import():
     print('qualified_name(print_python_banner):', qualified_name(print_python_banner))
     print('qualified_name(print_warning):',       qualified_name(print_warning))
     print('qualified_name(replenv_modules):',     qualified_name(replenv_modules))
-    # print_separator()
-    # print()
-    
-    # Re-print search-by-ID cache info:
-    exporter._print_cache_info()
     print_separator()
     print()
 
@@ -1244,6 +1325,14 @@ def test():
     test_dict_and_namespace_merge()
     test_qualified_name()
     test_qualified_import()
+    
+    # Re-print search-by-ID cache info and clade histogram:
+    exporter._print_clade_histogram()
+    # print_separator()
+    exporter._print_cache_info()
+    print_separator()
+    print()
+    
 
 if __name__ == '__main__':
     test()
