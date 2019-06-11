@@ -39,9 +39,9 @@ else:
 print_separator = lambda: print('-' * SEPARATOR_WIDTH)
 
 try:
-    from collections.abc import MutableMapping, Hashable as HashableABC
+    from collections.abc import Mapping, MutableMapping, Hashable as HashableABC
 except ImportError:
-    from collections import MutableMapping, Hashable as HashableABC
+    from collections import Mapping, MutableMapping, Hashable as HashableABC
 
 try:
     from importlib.util import cache_from_source
@@ -157,7 +157,7 @@ allpyattrs = lambda thing, *attrs: all(haspyattr(thing, atx) for atx in attrs)
 # Things with either __iter__(…) OR __getitem__(…) are iterable:
 isiterable = lambda thing: anypyattrs(thing, 'iter', 'getitem')
 
-# q.v. `merge_two(…)` implementation supra.
+# q.v. `merge_two(…)` implementation sub.
 ismergeable = lambda thing: bool(hasattr(thing, 'get') and isiterable(thing))
 
 clademap = {
@@ -168,7 +168,7 @@ clademap = {
     'class'         : isclass,
     'metaclass'     : ismetaclass,
     'sequence'      : lambda thing: isinstance(thing, (tuple, list, set, frozenset, str, bytes, bytearray)),
-    'dictionary'    : lambda thing: isinstance(thing, (dict, MutableMapping)),
+    'dictionary'    : lambda thing: isinstance(thing, (dict, Mapping, MutableMapping)),
     'instance'      : lambda thing: (not isclasstype(thing)) and \
                                          isclass(type(thing))
 }
@@ -992,28 +992,16 @@ def masked_permissions(perms=0o666):
 
 # ENUM UTILITIES: `isenum(…)` predicate; `enumchoices(…)` to return a tuple
 # of strings naming an enum’s choices (like duh)
-
-try:
-    import enum
-
-except (ImportError, SyntaxError):
-    enum = None
-    isenum = enumchoices = predicatenop
     
-    export(isenum,      name='isenum',      doc='No-op predicate')
-    export(enumchoices, name='enumchoices', doc='No-op predicate')
+@export
+def isenum(cls):
+    """ Predicate function to ascertain whether a class is an Enum. """
+    return enum.Enum in cls.__mro__
 
-else:
-    
-    @export
-    def isenum(cls):
-        """ Predicate function to ascertain whether a class is an Enum. """
-        return enum.Enum in cls.__mro__
-    
-    @export
-    def enumchoices(cls):
-        """ Return a tuple containing the names of an Enum class’ members. """
-        return tuple(choice.name for choice in cls)
+@export
+def enumchoices(cls):
+    """ Return a tuple containing the names of an Enum class’ members. """
+    return tuple(choice.name for choice in cls)
 
 # THE MODULE EXPORTS:
 export(print_separator, name='print_separator', doc="print_separator() → prints a line of dashes as wide as it believes the terminal width to be")
@@ -1093,7 +1081,7 @@ export(callable_types)
 
 export(ispathtype,      name='ispathtype',  doc="ispathtype(thing) → boolean predicate, True if thing is a path type")
 export(ispath,          name='ispath',      doc="ispath(thing) → boolean predicate, True if thing seems to be path-ish instance")
-export(isvalidpath,     name='isvalidpath', doc="isvalid(thing) → boolean predicate, True if thing is a valid path on the filesystem")
+export(isvalidpath,     name='isvalidpath', doc="isvalidpath(thing) → boolean predicate, True if thing is a valid path on the filesystem")
 
 export(isnumber,        name='isnumber',    doc="isnumber(thing) → boolean predicate, True if thing is a numeric type or an instance of same")
 export(isnumeric,       name='isnumeric',   doc="isnumeric(thing) → boolean predicate, True if thing is a numeric type or an instance of same")
@@ -1106,8 +1094,7 @@ export(islambda,        name='islambda',    doc="islambda(thing) → boolean pre
 export(ishashable,      name='ishashable',  doc="ishashable(thing) → boolean predicate, True if thing can be hashed, via the builtin `hash(thing)`")
 
 # NO DOCS ALLOWED:
-export(Exporter)
-exporter['exporter'] = exporter # hahaaaaa
+export(Exporter) # hahaaaaa
 
 # Assign the modules’ `__all__` and `__dir__` using the exporter:
 __all__, __dir__ = exporter.all_and_dir()
