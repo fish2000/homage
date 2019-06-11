@@ -520,14 +520,31 @@ class Exporter(MutableMapping):
             print(prelude, " %s" % re.subn(r'\n', '\n' + " " * (len(prelude) + 2), pformat(value, width=SEPARATOR_WIDTH, compact=True), flags=re.MULTILINE)[0])
     
     def _print_clade_histogram(self):
-        from pprint import pprint
         clade_histogram = self.clade_histogram()
         total = sum(clade_histogram.values())
-        unaccounted = len(self) - total
+        unclassified = len(self) - total
+        leafclades = frozenset(Clade) - frozenset(clade_histogram.keys())
         print_separator()
-        print("≠≠≠ CLADE-CLASSIFICATION HISTOGRAM: (total = %i, unaccounted = %i)" % (total, unaccounted))
+        print("≠≠≠ CLASSIFICATION HISTOGRAM")
+        print("≠≠≠ Clades: %i (of %i)" % (len(clade_histogram), len(Clade)))
+        print("≠≠≠ Things: %i total, %i unclassified" % (total, unclassified))
+        # print("≠≠≠ Clades: %i (of %i), Items: %i, Unclassified: %i" % (len(clade_histogram),
+        #                                                                len(Clade),
+        #                                                                total,
+        #                                                                unclassified))
         print()
-        pprint(clade_histogram)
+        for idx, (clade, count) in enumerate(sorted(clade_histogram.items(),
+                                                    key=lambda item: item[1],
+                                                    reverse=True)):
+            prelude = "%02d → [ %12s ] → %2i • %s%%" % (idx, clade.name, count, str(int((count / total) * 100)).rjust(2))
+            print(prelude, "•" * count)
+        print()
+        if len(leafclades) > 0:
+            # len(Clade) - len(clade_histogram))
+            print("≠≠≠ %i leaf clades:" % len(leafclades))
+            print("≠≠≠ %s" % ", ".join(sorted(clade.to_string() for clade in leafclades)))
+            print()
+        
     
     def _print_cache_info(self):
         from pprint import pprint
@@ -1522,7 +1539,7 @@ def test():
     test_namespace_instance_docstring()
     test_dict_and_namespace_merge()
     test_qualified_name()
-    # test_qualified_import()
+    test_qualified_import()
     
     # Re-print search-by-ID cache info and clade histogram:
     print("≠≠≠ POST-HOC EXPORTER STATS:")
