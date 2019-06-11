@@ -1027,14 +1027,7 @@ exporter['exporter'] = exporter # hahaaaaa
 # Assign the modules’ `__all__` and `__dir__` using the exporter:
 __all__, __dir__ = exporter.all_and_dir()
 
-
-def test():
-    """ Inline tests for replutilities.py """
-    from pprint import pprint
-    
-    # Print the full exporter diagnostics:
-    exporter.print_diagnostics(__all__, __dir__)
-    
+def test_attr_accessor():
     print("» Checking “attr(•) accessor …”")
     print()
     
@@ -1045,7 +1038,8 @@ def test():
     assert load is not None
     wat = attr(plistlib, 'yo_dogg', 'wtf_hax')
     assert wat is None
-    
+
+def test_boolean_predicates():
     print("» Checking basic isXXX(•) functions …")
     print()
     
@@ -1091,7 +1085,8 @@ def test():
     assert isfunction(export)
     assert not isfunction(SimpleNamespace())
     assert isfunction(SimpleNamespace) # classes are callable!
-    
+
+def test_lambda_naming():
     print("» Checking lambda naming …")
     
     lammy = lambda: None
@@ -1104,7 +1099,8 @@ def test():
     assert lammy_name == lambda_name
     assert lammy_pyattr_name == lambda_name
     print()
-    
+
+def test_namespace_instance_docstring():
     print("» Checking “types.__doc__ …”")
     print()
     
@@ -1129,6 +1125,10 @@ def test():
     print(haspyattr.__doc__)
     print_separator()
     print()
+    
+    
+def test_dict_and_namespace_merge():
+    from pprint import pprint
     
     dict_one = { 'compress_level' : 9,
                        'optimize' : True,
@@ -1192,7 +1192,8 @@ def test():
     pprint(merged)
     print_separator()
     print()
-    
+
+def test_qualified_name():
     print("» Checking “qualified_name(¬) …”")
     print()
     
@@ -1204,7 +1205,8 @@ def test():
     print('qualified_name(types):', qualified_name(types))
     print_separator()
     print()
-    
+
+def test_qualified_import():
     print("» Checking “qualified_import(¬) …”")
     print()
     
@@ -1227,6 +1229,21 @@ def test():
     exporter._print_cache_info()
     print_separator()
     print()
+
+def test():
+    """ Inline tests for replutilities.py """
+    
+    # Print the full exporter diagnostics:
+    exporter.print_diagnostics(__all__, __dir__)
+    
+    # Individual test sections:
+    test_attr_accessor()
+    test_lambda_naming()
+    test_boolean_predicates()
+    test_namespace_instance_docstring()
+    test_dict_and_namespace_merge()
+    test_qualified_name()
+    test_qualified_import()
 
 if __name__ == '__main__':
     test()
