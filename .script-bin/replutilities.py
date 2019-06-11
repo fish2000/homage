@@ -4,6 +4,9 @@ from __future__ import print_function
 from itertools import chain
 import sys, os
 
+# Possible names for builtin modules:
+BUILTINS = ('__builtins__', '__builtin__', 'builtins', 'builtin')
+
 # Are we debuggin out?
 DEBUG = bool(int(os.environ.get('DEBUG', '0'), base=10))
 
@@ -23,6 +26,15 @@ import array
 import contextlib
 import decimal
 import warnings
+
+# Set up some terminal-printing stuff:
+if TEXTMATE:
+    SEPARATOR_WIDTH = 100
+else:
+    from terminalsize import get_terminal_size
+    SEPARATOR_WIDTH = get_terminal_size(default=(100, 25))[0]
+
+print_separator = lambda: print('-' * SEPARATOR_WIDTH)
 
 try:
     from collections.abc import MutableMapping, Hashable as HashableABC
@@ -44,9 +56,6 @@ except ImportError:
             return function
         return inside
 
-# Q.v. `thingname_search_by_id(…)` function sub.
-cache = lru_cache(maxsize=256, typed=False)
-
 try:
     from pathlib import Path
 except ImportError:
@@ -54,6 +63,8 @@ except ImportError:
         from pathlib2 import Path
     except ImportError:
         Path = None
+
+pytuple = lambda *attrs: tuple('__%s__' % str(atx) for atx in attrs)
 
 def doctrim(docstring):
     """ This function is straight outta PEP257 -- q.v. `trim(…)`,
@@ -89,10 +100,6 @@ def determine_name(thing, name=None, try_repr=False):
     # Shortcut everything if a name was explictly specified:
     if name is not None:
         return name
-    # q.v. “export(…)” deco-function sub.
-    elif hasattr(thing, '__export_name__'):
-        if thing.__export_name__:
-            return thing.__export_name__
     # Check for telltale function-object attributes:
     code = None
     if hasattr(thing, '__code__'): # Python 3.x
@@ -149,7 +156,7 @@ class NoDefault(object):
 class Exporter(MutableMapping):
     
     """ A class representing a list of things for a module to export. """
-    __slots__ = ('__exports__',)
+    __slots__ = pytuple('exports')
     
     def __init__(self):
         self.__exports__ = {}
@@ -178,35 +185,10 @@ class Exporter(MutableMapping):
             return self.__exports__.pop(key)
         return self.__exports__.pop(key, default)
     
-    def __iter__(self):
-        return iter(self.__exports__.keys())
-    
-    def __len__(self):
-        return len(self.__exports__)
-    
-    def __contains__(self, key):
-        return key in self.__exports__
-    
-    def __getitem__(self, key):
-        return self.__exports__[key]
-    
-    def __setitem__(self, key, value):
-        self.__exports__[key] = value
-    
-    def __delitem__(self, key):
-        del self.__exports__[key]
-    
-    def __bool__(self):
-        return len(self.__exports__) > 0
-    
-    def __call__(self):
-        """ Exporter instances are callable, for use in __all__ and __dir__() definitions """
-        return tuple(self.keys())
-    
-    def dir_function(self):
-        return list(self.keys())
-    
-    message = "Can’t set __export_name__ for thing “%s” of type %s:"
+    messages = {
+        'docstr'    : "Can’t set the docstring for thing “%s” of type %s:",
+        'noname'    : "Can’t determine a name for lambda: 0x%0x"
+    }
     
     def export(self, thing, name=None, doc=None):
         """ Add a function -- or any object, really -- to the export list.
@@ -218,7 +200,7 @@ class Exporter(MutableMapping):
             instance, to wit:
             
                 exporter = Exporter()
-                export = exporter.export
+                export = exporter.decorator() # q.v. “decorator()” sub.
             
             Use `export` as a decorator to a function definition:
                 
@@ -241,8 +223,6 @@ class Exporter(MutableMapping):
         # Double-check our determined name and item before stowing:
         if named is None:
             raise ExportError("can’t export an unnamed thing")
-        if named == LAMBDA:
-            raise ExportError("can’t export an unnamed lambda")
         if named in self.__exports__:
             raise ExportError("can’t re-export name “%s”" % named)
         if thing is self.__exports__:
@@ -251,9 +231,14 @@ class Exporter(MutableMapping):
             raise ExportError("can’t export an exporter instance directly")
         
         # At this point, “named” is valid -- if we were passed
-        # a lambda, try to rename it with our valid name:
+        # a lambda, try to rename it with either our valid name,
+        # or the result of an ID-based search for that lambda:
         if callable(thing):
             if getattr(thing, '__name__', '') == LAMBDA:
+                if named == LAMBDA:
+                    named = thingname_search(thing)
+                if named is None:
+                    raise ExportError(type(self).messages['noname'] % id(thing))
                 thing.__name__ = thing.__qualname__ = named
                 thing.__lambda_name__ = LAMBDA # To recall the lambda’s genesis
         
@@ -267,32 +252,295 @@ class Exporter(MutableMapping):
                 thing.__doc__ = doctrim(doc)
             except (AttributeError, TypeError):
                 typename = determine_name(type(thing))
-                warnings.warn(self.message % (named, typename),
+                warnings.warn(type(self).messages['docstr'] % (named, typename),
                               ExportWarning, stacklevel=2)
         
         # Stow the item in the global __exports__ dict:
         self.__exports__[named] = thing
         
-        # N.B. We don’t set `__export_name__` on class or metaclass things,
-        # because we don’t want all of their derived types or instances
-        # to inherit it:
-        if not isclasstype(thing):
-            # Attempt to assign our name as a private attribute
-            # on the item -- q.v. __doc__ note supra.
-            if not hasattr(thing, '__export_name__'):
-                try:
-                    thing.__export_name__ = named
-                except (AttributeError, TypeError):
-                    if DEBUG:
-                        typename = determine_name(type(thing))
-                        warnings.warn(self.message % (named, typename),
-                                      ExportWarning, stacklevel=2)
-        
         # Return the thing, unchanged (that’s how we decorate).
         return thing
+    
+    def decorator(self):
+        """ Return a reference to this Exporter instances’ “export”
+            method, suitable for use as a decorator, e.g.:
+            
+                export = exporter.decorator()
+                
+                @export
+                def yodogg():
+                    ''' Yo dogg, I heard you like exporting '''
+                    …
+            
+            … This should be done near the beginning of a module,
+            to facilitate marking functions and other objects to be
+            exported – q.v. the “all_and_dir()” method sub.
+        """
+        return self.export
+    
+    def __call__(self):
+        """ Exporter instances are callable, for use in `__all__` definitions """
+        return tuple(self.keys())
+    
+    def dir_function(self):
+        """ Return a list containing the exported module names. """
+        return list(self.keys())
+    
+    def all_and_dir(self):
+        """ Assign a modules’ __all__ and __dir__ values, e.g.:
+            
+                __all__, __dir__ = exporter.all_and_dir()
+            
+            … This should be done near the end of a module, after
+            all calls to `exporter.export(…)` (aka @export) have
+            been made – q.v. the “decorator()” method supra.
+        """
+        return self(), self.dir_function
+    
+    def dir_and_all(self):
+        """ Assign a modules’ __dir__ and __all__ values, e.g.:
+            
+                __dir__, __all__ = exporter.dir_and_all()
+            
+            … This should be done near the end of a module, after
+            all calls to `exporter.export(…)` (aka @export) have
+            been made – q.v. the “decorator()” method supra.
+        """
+        return self.dir_function, self() # OPPOSITE!
+    
+    def cache_info(self):
+        """ Shortcut to get the CacheInfo namedtuple from the
+            cached internal `thingname_search_by_id(…)` function,
+            which is used in last-resort name lookups made by
+            `determine_name(…)` during `export(…)` calls.
+        """
+        return thingname_search_by_id.cache_info()
+    
+    def _print_export_list(self, exports):
+        from pprint import pprint
+        print_separator()
+        print("EXPORTS: (length=%i)" % len(exports))
+        print()
+        pprint(exports, indent=4, width=SEPARATOR_WIDTH)
+    
+    def _print_cache_info(self):
+        from pprint import pprint
+        print_separator()
+        print("THINGNAME SEARCH-BY-ID CACHE INFO:")
+        print()
+        pprint(self.cache_info())
+    
+    def print_diagnostics(self, module_all, module_dir):
+        """ Pretty-print the current list of exported things """
+        # Sanity-check the modules’ __dir__ and __all__ attributes
+        assert list(module_all) == module_dir()
+        assert len(module_all) == len(module_dir())
+        exports = self.exports()
+        assert len(module_all) == len(exports)
+        
+        # Pretty-print the export list
+        self._print_export_list(exports)
+        
+        # Print the cache info
+        self._print_cache_info()
+        
+        # Print closing separators
+        print_separator()
+        print()
+    
+    def __iter__(self):
+        return iter(self.__exports__.keys())
+    
+    def __len__(self):
+        return len(self.__exports__)
+    
+    def __contains__(self, key):
+        return key in self.__exports__
+    
+    def __getitem__(self, key):
+        return self.__exports__[key]
+    
+    def __setitem__(self, key, value):
+        self.__exports__[key] = value
+    
+    def __delitem__(self, key):
+        del self.__exports__[key]
+    
+    def __bool__(self):
+        return len(self.__exports__) > 0
 
 exporter = Exporter()
-export = exporter.export
+export = exporter.decorator()
+
+# MODULE SEARCH FUNCTIONS: iterate and search modules, yielding
+# names, thing values, and/or id(thing) values, matching by given
+# by thing names or id(thing) values
+
+@export
+def itermodule(module):
+    """ Get an iterable of `(name, thing)` tuples for all things
+        contained in a given module (although it’ll probably work
+        for classes and instances too – anything `dir()`-able.)
+    """
+    keys = tuple(key for key in sorted(dir(module)) \
+                      if key not in BUILTINS)
+    values = (getattr(module, key) for key in keys)
+    return zip(keys, values)
+
+@export
+def moduleids(module):
+    """ Get a dictionary of `(name, thing)` tuples from a module,
+        indexed by the `id()` value of `thing`
+    """
+    out = {}
+    for key, thing in itermodule(module):
+        out[id(thing)] = (key, thing)
+    return out
+
+@export
+def thingname(original, *modules):
+    """ Find the name of a thing, according to what it is called
+        in the context of a module in which it resides
+    """
+    inquestion = id(original)
+    for module in frozenset(modules):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for key, thing in itermodule(module):
+                if id(thing) == inquestion:
+                    return key
+    return None
+
+def itermoduleids(module):
+    """ Internal function to get an iterable of `(name, id(thing))`
+        tuples for all things comntained in a given module – q.v.
+        `itermodule(…)` implementation supra.
+    """
+    keys = tuple(key for key in dir(module) \
+                      if key not in BUILTINS)
+    ids = (id(getattr(module, key)) for key in keys)
+    return zip(keys, ids)
+
+# Q.v. `thingname_search_by_id(…)` function sub.
+cache = lru_cache(maxsize=256, typed=False)
+
+@cache
+def thingname_search_by_id(thingID):
+    """ Cached function to find the name of a thing, according
+        to what it is called in the context of a module in which
+        it resides – searching across all currently imported
+        modules in entirely, as indicated from the inspection of
+        `sys.modules.values()` (which is potentially completely
+        fucking enormous).
+        
+        This function implements `thingname_search(…)` – q.v.
+        the calling function code sub., and is also used in the
+        implementdation of `determine_module(…)`, - also q.v.
+        the calling function code sub.
+        
+        Caching courtesy the `functools.lru_cache(…)` decorator.
+    """
+    # Would you believe that the uniquify(…) call is absolutely
+    # fucking necessary to use on `sys.modules`?! I checked and
+    # on my system, like on all my REPLs, uniquifying the modules
+    # winnowed the module list (and therefore, this functions’
+    # search space) by around 100 fucking modules (!) every time!!
+    for module in frozenset(sys.modules.values()):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for key, valueID in itermoduleids(module):
+                if valueID == thingID:
+                    return module, key
+    return None, None
+
+@export
+def thingname_search(thing):
+    """ Attempt to find the name for thing, using the logic from
+        the `thingname(…)` function, applied to all currently
+        imported modules, as indicated from the inspection of
+        `sys.modules.values()` (which that, as a search space,
+        is potentially fucking enormous).
+        
+        This function may be called by `determine_name(…)`. Its
+        subordinate internal function, `thingname_search_by_id(…)`,
+        uses the LRU cache from `functools`.
+    """
+    return thingname_search_by_id(id(thing))[1]
+
+# UTILITY FUNCTIONS: hasattr(…) shortcuts:
+
+haspyattr = lambda thing, atx: hasattr(thing, '__%s__' % atx)
+anyattrs = lambda thing, *attrs: any(hasattr(thing, atx) for atx in attrs)
+allattrs = lambda thing, *attrs: all(hasattr(thing, atx) for atx in attrs)
+anypyattrs = lambda thing, *attrs: any(haspyattr(thing, atx) for atx in attrs)
+allpyattrs = lambda thing, *attrs: all(haspyattr(thing, atx) for atx in attrs)
+
+# Things with either __iter__(…) OR __getitem__(…) are iterable:
+isiterable = lambda thing: anypyattrs(thing, 'iter', 'getitem')
+
+# q.v. `merge_two(…)` implementation supra.
+ismergeable = lambda thing: bool(hasattr(thing, 'get') and isiterable(thing))
+
+# UTILITY FUNCTIONS: getattr(…) shortcuts:
+
+no_op = lambda thing, atx, default=None: atx or default
+or_none = lambda thing, atx: getattr(thing, atx, None)
+getpyattr = lambda thing, atx, default=None: getattr(thing, '__%s__' % atx, default)
+getitem = lambda thing, itx, default=None: getattr(thing, 'get', no_op)(itx, default)
+
+accessor = lambda function, thing, *attrs: ([atx for atx in (function(thing, atx) \
+                                                 for atx in attrs) \
+                                                 if atx is not None] or [None]).pop(0)
+
+searcher = lambda function, xatx, *things: ([atx for atx in (function(thing, xatx) \
+                                                 for thing in things) \
+                                                 if atx is not None] or [None]).pop(0)
+
+attr = lambda thing, *attrs: accessor(or_none, thing, *attrs)
+pyattr = lambda thing, *attrs: accessor(getpyattr, thing, *attrs)
+item = lambda thing, *items: accessor(getitem, thing, *items)
+
+attr_search = lambda atx, *things: searcher(or_none, atx, *things)
+pyattr_search = lambda atx, *things: searcher(getpyattr, atx, *things)
+item_search = lambda itx, *things: searcher(getitem, itx, *things)
+
+# Does a class contain an attribute -- whether it uses `__dict__` or `__slots__`?
+thing_has = lambda thing, atx: atx in (pyattr(thing, 'dict', 'slots') or tuple())
+class_has = lambda cls, atx: isclasstype(cls) and thing_has(cls, atx)
+
+# Is this a class based on a `__dict__`, or one using `__slots__`?
+isslotted = lambda thing: allpyattrs('mro', 'slots')
+isdictish = lambda thing: allpyattrs('mro', 'dict')
+isslotdicty = lambda thing: allpyattrs('mro', 'slots', 'dict')
+
+@export
+def slots_for(cls):
+    """ Get the summation of the `__slots__` tuples for a class and its ancestors """
+    # q.v. https://stackoverflow.com/a/6720815/298171
+    if not haspyattr(cls, 'mro'):
+        return tuple()
+    return tuple(chain.from_iterable(
+                 getpyattr(ancestor, 'slots', tuple()) \
+                       for ancestor in cls.__mro__))
+
+@export
+def nameof(thing, fallback=''):
+    """ Get the name of a thing, according to either:
+        >>> thing.__qualname__
+        … or:
+        >>> thing.__name__
+        … optionally specifying a fallback string.
+    """
+    return determine_name(thing) or fallback
+
+@export
+def determine_module(thing):
+    """ Determine in which module a given thing is ensconced,
+        and return that modules’ name as a string.
+    """
+    return pyattr(thing, 'module', 'package') or \
+           determine_name(
+           thingname_search_by_id(id(thing))[0])
 
 # UTILITY FUNCTIONS: helpers for builtin container types:
 
@@ -343,19 +591,6 @@ def merge(*dicts, **overrides):
         raise NameError('Cannot override the `cls` value')
     return merge_as(*dicts, cls=dict, **overrides)
 
-# UTILITY FUNCTIONS: hasattr(…) shortcuts:
-haspyattr = lambda thing, atx: hasattr(thing, '__%s__' % atx)
-anyattrs = lambda thing, *attrs: any(hasattr(thing, atx) for atx in attrs)
-allattrs = lambda thing, *attrs: all(hasattr(thing, atx) for atx in attrs)
-anypyattrs = lambda thing, *attrs: any(haspyattr(thing, atx) for atx in attrs)
-allpyattrs = lambda thing, *attrs: all(haspyattr(thing, atx) for atx in attrs)
-
-# Things with either __iter__(…) OR __getitem__(…) are iterable:
-isiterable = lambda thing: anypyattrs(thing, 'iter', 'getitem')
-
-# q.v. `merge_two(…)` implementation supra.
-ismergeable = lambda thing: bool(hasattr(thing, 'get') and isiterable(thing))
-
 # UTILITY STUFF: asdict(…)
 
 @export
@@ -375,7 +610,7 @@ class SimpleNamespace(object):
     """ Implementation courtesy this SO answer:
         • https://stackoverflow.com/a/37161391/298171
     """
-    __slots__ = tuplize('__dict__', '__weakref__')
+    __slots__ = pytuple('dict', 'weakref')
     
     def __init__(self, *args, **kwargs):
         for arg in args:
@@ -408,7 +643,7 @@ class Namespace(SimpleNamespace, MutableMapping):
         
         Additionally, Namespace furnishes an `__all__` property implementation.
     """
-    __slots__ = tuplize()
+    __slots__ = tuple()
     
     def get(self, key, default=NoDefault):
         """ Return the value for key if key is in the dictionary, else default. """
@@ -467,52 +702,7 @@ class Namespace(SimpleNamespace, MutableMapping):
     def __bool__(self):
         return bool(self.__dict__)
 
-# UTILITY FUNCTIONS: getattr(…) shortcuts:
-
-no_op = lambda thing, atx, default=None: atx or default
-or_none = lambda thing, atx: getattr(thing, atx, None)
-getpyattr = lambda thing, atx, default=None: getattr(thing, '__%s__' % atx, default)
-getitem = lambda thing, itx, default=None: getattr(thing, 'get', no_op)(itx, default)
-
-accessor = lambda function, thing, *attrs: ([atx for atx in (function(thing, atx) \
-                                                 for atx in attrs) \
-                                                 if atx is not None] or [None]).pop(0)
-
-attr = lambda thing, *attrs: accessor(or_none, thing, *attrs)
-pyattr = lambda thing, *attrs: accessor(getpyattr, thing, *attrs)
-item = lambda thing, *items: accessor(getitem, thing, *items)
-
-# Does a class contain an attribute -- whether it uses `__dict__` or `__slots__`?
-thing_has = lambda thing, atx: atx in (pyattr(thing, 'dict', 'slots') or tuple())
-class_has = lambda cls, atx: isclasstype(cls) and thing_has(cls, atx)
-
-# Is this a class based on a `__dict__`, or one using `__slots__`?
-isslotted = lambda thing: allpyattrs('mro', 'slots')
-isdictish = lambda thing: allpyattrs('mro', 'dict')
-isslotdicty = lambda thing: allpyattrs('mro', 'slots', 'dict')
-
-@export
-def slots_for(cls):
-    """ Get the summation of the `__slots__` tuples for a class and its ancestors """
-    # q.v. https://stackoverflow.com/a/6720815/298171
-    if not haspyattr(cls, 'mro'):
-        return tuple()
-    return tuple(chain.from_iterable(
-                 getpyattr(ancestor, 'slots', tuple()) \
-                           for ancestor in cls.__mro__))
-
-@export
-def nameof(thing, fallback=''):
-    """ Get the name of a thing, according to either:
-        >>> thing.__qualname__
-        … or:
-        >>> thing.__name__
-        … optionally specifying a fallback string.
-    """
-    return determine_name(thing) or fallback
-
-BUILTINS = ('__builtins__', '__builtin__', 'builtins', 'builtin')
-VERBOTEN = tuple('__%s__' % atx for atx in ('all', 'cached', 'loader', 'file', 'spec'))
+VERBOTEN = pytuple('all', 'cached', 'loader', 'file', 'spec')
 VERBOTEN += BUILTINS
 VERBOTEN += ('Namespace', 'SimpleNamespace')
 
@@ -537,9 +727,11 @@ for typename in dir(thetypes):
 setattr(types, 'Namespace',       Namespace)
 setattr(types, 'SimpleNamespace', SimpleNamespace)
 
-# Manually set `types.__file__`:
+# Manually set `types.__file__` and related attributes:
 setattr(types, '__file__',        __file__)
 setattr(types, '__cached__',      cache_from_source(__file__))
+setattr(types, '__package__',     os.path.splitext(
+                                  os.path.basename(__file__))[0])
 
 @export
 def graceful_issubclass(thing, *cls_or_tuple):
@@ -698,102 +890,25 @@ def qualified_name(thing):
         print("Qualified Name: %s" % qualname)
     return qualname
 
-# MODULE SEARCH FUNCTIONS: iterate and search modules, yielding
-# names, thing values, and/or id(thing) values, matching by given
-# by thing names or id(thing) values
+# OS UTILITIES: get the current process’ umask value
 
 @export
-def itermodule(module):
-    """ Get an iterable of `(name, thing)` tuples for all things
-        contained in a given module (although it’ll probably work
-        for classes and instances too – anything `dir()`-able.)
-    """
-    keys = tuple(key for key in sorted(dir(module)) \
-                      if key not in BUILTINS)
-    values = (getattr(module, key) for key in keys)
-    return zip(keys, values)
+@lru_cache(maxsize=1)
+def current_umask():
+    """ Get the current umask value (cached on Python 3 and up). """
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
 
 @export
-def moduleids(module):
-    """ Get a dictionary of `(name, thing)` tuples from a module,
-        indexed by the `id()` value of `thing`
+def masked_permissions(perms=0o666):
+    """ Compute the permission bitfield, using the current umask value
+        and a given permission octal number.
     """
-    out = {}
-    for key, thing in itermodule(module):
-        out[id(thing)] = (key, thing)
-    return out
+    return perms & ~current_umask()
 
-@export
-def thingname(original, *modules):
-    """ Find the name of a thing, according to what it is called
-        in the context of a module in which it resides
-    """
-    inquestion = id(original)
-    for module in frozenset(modules):
-        for key, thing in itermodule(module):
-            if id(thing) == inquestion:
-                return key
-    return None
- 
-def itermoduleids(module):
-    """ Internal function to get an iterable of `(name, id(thing))`
-        tuples for all things comntained in a given module – q.v.
-        `itermodule(…)` implementation supra.
-    """
-    keys = tuple(key for key in dir(module) \
-                      if key not in BUILTINS)
-    ids = (id(getattr(module, key)) for key in keys)
-    return zip(keys, ids)
-
-@cache
-def thingname_search_by_id(thingID):
-    """ Cached function to find the name of a thing, according
-        to what it is called in the context of a module in which
-        it resides – searching across all currently imported
-        modules in entirely, as indicated from the inspection of
-        `sys.modules.values()` (which is potentially completely
-        fucking enormous).
-        
-        This function implements `thingname_search(…)` – q.v.
-        the calling function code sub., and is also used in the
-        implementdation of `determine_module(…)`, - also q.v.
-        the calling function code sub.
-        
-        Caching courtesy the `functools.lru_cache(…)` decorator.
-    """
-    # Would you believe that the uniquify(…) call is absolutely
-    # fucking necessary to use on `sys.modules`?! I checked and
-    # on my system, like on all my REPLs, uniquifying the modules
-    # winnowed the module list (and therefore, this functions’
-    # search space) by around 100 fucking modules (!) every time!!
-    for module in frozenset(sys.modules.values()):
-        for key, valueID in itermoduleids(module):
-            if valueID == thingID:
-                return module, key
-    return None, None
-
-@export
-def thingname_search(thing):
-    """ Attempt to find the name for thing, using the logic from
-        the `thingname(…)` function, applied to all currently
-        imported modules, as indicated from the inspection of
-        `sys.modules.values()` (which that, as a search space,
-        is potentially fucking enormous).
-        
-        This function may be called by `determine_name(…)`. Its
-        subordinate internal function, `thingname_search_by_id(…)`,
-        uses the LRU cache from `functools`.
-    """
-    return thingname_search_by_id(id(thing))[1]
-
-@export
-def determine_module(thing):
-    """ Determine in which module a given thing is ensconced,
-        and return that modules’ name as a string.
-    """
-    return pyattr(thing, 'module', 'package') or \
-           determine_name(
-           thingname_search_by_id(id(thing))[0])
+# ENUM UTILITIES: `isenum(…)` predicate; `enumchoices(…)` to return a tuple
+# of strings naming an enum’s choices (like duh)
 
 try:
     import enum
@@ -817,13 +932,15 @@ else:
         """ Return a tuple containing the names of an Enum class’ members. """
         return tuple(choice.name for choice in cls)
 
-
 # THE MODULE EXPORTS:
+export(print_separator, name='print_separator', doc="print_separator() → prints a line of dashes as wide as it believes the terminal width to be")
+export(pytuple,         name='pytuple',         doc="pytuple(*attrs) → turns ('do', 're', 'mi') into ('__do__', '__re__', '__mi__')")
+export(doctrim)
+export(determine_name)
 export(ExportError,     name='ExportError',     doc="An exception raised during a call to export()")
 export(ExportWarning,   name='ExportWarning',   doc="A warning issued during a call to export()")
 export(NoDefault,       name='NoDefault',       doc="A singleton class with no value, used to represent a lack of a default value")
 
-export(doctrim,         name='doctrim')
 export(ismetaclass,     name='ismetaclass',     doc="ismetaclass(thing) → boolean predicate, True if thing is a class, descending from `type`")
 export(isclass,         name='isclass',         doc="isclass(thing) → boolean predicate, True if thing is a class, descending from `object`")
 export(isclasstype,     name='isclasstype',     doc="isclasstype(thing) → boolean predicate, True if thing is a class, descending from either `object` or `type`")
@@ -841,9 +958,14 @@ export(or_none,         name='or_none',         doc="or_none(thing, attribute) �
 export(getpyattr,       name='getpyattr',       doc="getpyattr(thing, attribute[, default]) → shortcut for getattr(thing, '__%s__' % attribute[, default])")
 export(getitem,         name='getitem',         doc="getitem(thing, item[, default]) → shortcut for thing.get(item[, default])")
 export(accessor,        name='accessor',        doc="accessor(func, thing, *attributes) → return the first non-None value had by successively applying func(thing, attribute)")
+export(searcher,        name='searcher',        doc="searcher(func, attribute, *things) → return the first non-None value had by successively applying func(thing, attribute)")
+
 export(attr,            name='attr',            doc="Return the first existing attribute from a thing, given 1+ attribute names")
 export(pyattr,          name='pyattr',          doc="Return the first existing __special__ attribute from a thing, given 1+ attribute names")
 export(item,            name='item',            doc="Return the first existing item held by thing, given 1+ item names")
+export(attr_search,     name='attr_search',     doc="Return the first-found existing attribute from a thing, given 1+ things")
+export(pyattr_search,   name='pyattr_search',   doc="Return the first-found existing __special__ attribute from a thing, given 1+ things")
+export(item_search,     name='item_search',     doc="Return the first-found existing item from a thing, given 1+ things")
 
 export(thing_has,       name='thing_has',       doc="thing_has(thing, attribute) → boolean predicate, True if thing has the attribute (in either __dict__ or __slots__)")
 export(class_has,       name='class_has',       doc="class_has(cls, attribute) → boolean predicate, True if cls is a class type and has the attribute (in either __dict__ or __slots__)")
@@ -858,6 +980,7 @@ export(LAMBDA,          name='LAMBDA')
 export(MAXINT,          name='MAXINT')
 export(PYPY,            name='PYPY')
 export(QUALIFIER,       name='QUALIFIER')
+export(SEPARATOR_WIDTH, name='SEPARATOR_WIDTH')
 export(TEXTMATE,        name='TEXTMATE')
 export(VERBOTEN,        name='VERBOTEN')
 
@@ -868,26 +991,20 @@ export(types,           name='types',       doc=""" A Namespace instance contain
                                                     more typographically pleasing, like definitively.
                                                 """)
 
-export(isabstractmethod,                   name='isabstractmethod',
-                                            doc="isabstractmethod(thing) → boolean predicate, True if thing is a method declared abstract with @abc.abstractmethod")
-export(isabstract,                         name='isabstract',
-                                            doc="isabstract(thing) → boolean predicate, True if thing is an abstract method OR an abstract base class (née ABC)")
-export(isabstractcontextmanager,           name='isabstractcontextmanager',
-                                            doc="isabstractcontextmanager(thing) → boolean predicate, True if thing decends from contextlib.AbstractContextManager")
-export(iscontextmanager,                   name='iscontextmanager',
-                                            doc="iscontextmanager(thing) → boolean predicate, True if thing is a context manager (either abstract or concrete)")
+export(isabstractmethod,                    doc="isabstractmethod(thing) → boolean predicate, True if thing is a method declared abstract with @abc.abstractmethod")
+export(isabstract,                          doc="isabstract(thing) → boolean predicate, True if thing is an abstract method OR an abstract base class (née ABC)")
+export(isabstractcontextmanager,            doc="isabstractcontextmanager(thing) → boolean predicate, True if thing decends from contextlib.AbstractContextManager")
+export(iscontextmanager,                    doc="iscontextmanager(thing) → boolean predicate, True if thing is a context manager (either abstract or concrete)")
 
 # NO DOCS ALLOWED:
-export(numeric_types,   name='numeric_types')
-export(array_types,     name='array_types')
-export(bytes_types,     name='bytes_types')
-export(string_types,    name='string_types')
-
-# NO DOCS ALLOWED:
-export(path_classes,    name='path_classes')
-export(path_types,      name='path_types')
-export(file_types,      name='file_types')
-export(callable_types,  name='callable_types')
+export(numeric_types)
+export(array_types)
+export(bytes_types)
+export(string_types)
+export(path_classes)
+export(path_types)
+export(file_types)
+export(callable_types)
 
 export(ispathtype,      name='ispathtype',  doc="ispathtype(thing) → boolean predicate, True if thing is a path type")
 export(ispath,          name='ispath',      doc="ispath(thing) → boolean predicate, True if thing seems to be path-ish instance")
@@ -904,31 +1021,19 @@ export(islambda,        name='islambda',    doc="islambda(thing) → boolean pre
 export(ishashable,      name='ishashable',  doc="ishashable(thing) → boolean predicate, True if thing can be hashed, via the builtin `hash(thing)`")
 
 # NO DOCS ALLOWED:
-export(Exporter)                            # hahaaaaa
-export(None,            name='exporter')    # in name only
-export(None,            name='__all__')     # in name only
+export(Exporter)
+exporter['exporter'] = exporter # hahaaaaa
 
-__all__ = exporter()
-__dir__ = exporter.dir_function
+# Assign the modules’ `__all__` and `__dir__` using the exporter:
+__all__, __dir__ = exporter.all_and_dir()
+
 
 def test():
+    """ Inline tests for replutilities.py """
     from pprint import pprint
-    from terminalsize import get_terminal_size
     
-    termsize = get_terminal_size(default=(100, 25))
-    SEPARATOR_WIDTH = termsize[0]
-    print_separator = lambda: print('-' * SEPARATOR_WIDTH)
-    
-    assert list(__all__) == __dir__()
-    assert len(__all__) == len(__dir__())
-    exports = exporter.exports()
-    assert len(__all__) == len(exports)
-    
-    print("EXPORTS: (length=%i)" % len(exports))
-    print()
-    pprint(exports, indent=4, width=SEPARATOR_WIDTH)
-    
-    print()
+    # Print the full exporter diagnostics:
+    exporter.print_diagnostics(__all__, __dir__)
     
     print("» Checking “attr(•) accessor …”")
     print()
@@ -1085,6 +1190,41 @@ def test():
     
     print_separator()
     pprint(merged)
+    print_separator()
+    print()
+    
+    print("» Checking “qualified_name(¬) …”")
+    print()
+    
+    assert qualified_name(BUILTINS) == '__main__.BUILTINS'
+    assert qualified_name(types) == '__main__.types'
+    
+    print_separator()
+    print('qualified_name(BUILTINS):', qualified_name(BUILTINS))
+    print('qualified_name(types):', qualified_name(types))
+    print_separator()
+    print()
+    
+    print("» Checking “qualified_import(¬) …”")
+    print()
+    
+    print_python_banner = qualified_import('replenv.print_python_banner')
+    print_warning       = qualified_import('replenv.print_warning')
+    replenv_modules     = qualified_import('replenv.modules')
+    
+    assert qualified_name(print_python_banner) == 'replenv.print_python_banner'
+    assert qualified_name(print_warning)       == 'replenv.print_warning'
+    assert qualified_name(replenv_modules)     == 'replenv.modules'
+    
+    print_separator()
+    print('qualified_name(print_python_banner):', qualified_name(print_python_banner))
+    print('qualified_name(print_warning):',       qualified_name(print_warning))
+    print('qualified_name(replenv_modules):',     qualified_name(replenv_modules))
+    # print_separator()
+    # print()
+    
+    # Re-print search-by-ID cache info:
+    exporter._print_cache_info()
     print_separator()
     print()
 

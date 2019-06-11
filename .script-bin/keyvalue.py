@@ -2,13 +2,19 @@
 # -*- encoding: utf-8 -*-
 
 import plistlib
+import sys, os
 import zict
-import os
 
 import appdirs
 from replutilities import attr, isstring, isbytes
+from replutilities import Exporter
+
+exporter = Exporter()
+export = exporter.decorator()
 
 # UTILITY STUFF: Exceptions
+
+@export
 class KeyValueError(ValueError):
     pass
 
@@ -33,14 +39,16 @@ except (ImportError, SyntaxError):
         
         def makedirs(self, pth=None):
             os.makedirs(os.path.abspath(
-                        os.path.join(self.name, pth or os.curdir)), exist_ok=False)
+                        os.path.join(self.name, pth or os.curdir)),
+                        exist_ok=False)
             return self
         
         def __str__(self):
             return self.target
 
-
 # UTILITY STUFF: AppDirs wrapper
+
+@export
 class ReplEnvDirs(appdirs.AppDirs):
     
     def __init__(self):
@@ -95,7 +103,8 @@ renvdirs = ReplEnvDirs()
 if not renvdirs.user_config.exists:
     renvdirs.user_config.makedirs()
 
-ENCODING = 'UTF-8'
+ENCODING = sys.getfilesystemencoding().upper() # 'UTF-8'
+
 zfile = zict.File(str(renvdirs.user_config), mode='a')
 zutf8 = zict.Func(dump=attr(plistlib, 'dumps', 'writePlistToString'),
                   load=attr(plistlib, 'loads', 'readPlistFromString'),
@@ -104,14 +113,17 @@ zfunc = zict.Func(dump=lambda value: isstring(value) and value.encode(ENCODING) 
                   load=lambda value: isbytes(value) and value.decode(ENCODING) or value,
                   d=zutf8)
 
+@export
 def has(key):
     """ Test if a key is contained in the key-value store. """
     return key in zfunc
 
+@export
 def count():
     """ Return the number of items in the key-value store. """
     return len(zfunc)
 
+@export
 def get(key, default_value=None):
     """ Return a value from the ReplEnv user-config key-value store. """
     if not key:
@@ -121,6 +133,7 @@ def get(key, default_value=None):
     except KeyError:
         return default_value
 
+@export
 def set(key, value):
     """ Set and return a value in the ReplEnv user-config key-value store. """
     if not key:
@@ -130,29 +143,46 @@ def set(key, value):
     zfunc[key] = value
     return get(key)
 
+@export
 def delete(key):
     """ Delete a value from the ReplEnv user-config key-value store. """
     if not key:
         raise KeyValueError("Non-Falsey key required for deletion (k: %s)" % key)
     del zfunc[key]
 
+@export
 def iterate():
     """ Return an iterator for the key-value store. """
     return iter(zfunc)
 
+@export
 def keys():
     """ Return an iterable with all of the keys in the key-value store. """
     return zfunc.keys()
 
+@export
 def values():
     """ Return an iterable with all of the values in the key-value store. """
     return zfunc.values()
 
+@export
 def items():
     """ Return an iterable yielding (key, value) for all items in the key-value store. """
     return zfunc.items()
 
-__dir__ = lambda: ('KeyValueError',
-                   'has', 'count',
-                   'get', 'set', 'delete', 'iterate',
-                   'keys', 'values', 'items')
+
+# export(pytuple,         name='pytuple',         doc="")
+
+# NO DOCS ALLOWED:
+export(Directory)
+export(ENCODING,        name='ENCODING')
+
+# Assign the modules’ `__all__` and `__dir__` using the exporter:
+__all__, __dir__ = exporter.all_and_dir()
+
+# Private (un-exported) inline test function:
+def test():
+    exporter.print_diagnostics(__all__, __dir__)
+
+if __name__ == '__main__':
+    test()
