@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 from __future__ import print_function
-from collections import Counter
+from collections import Counter, OrderedDict
+from enum import Enum, unique, _is_dunder as ispyname
 from itertools import chain
 import sys, os
 
@@ -11,9 +12,15 @@ BUILTINS = ('__builtins__', '__builtin__', 'builtins', 'builtin')
 # Are we debuggin out?
 DEBUG = bool(int(os.environ.get('DEBUG', '0'), base=10))
 
+# On non-macOS platforms this may be awry:
+ENCODING = sys.getfilesystemencoding().upper() # 'UTF-8'
+
 # N.B. this may or may not be a PY2/PY3 thing:
 MAXINT = getattr(sys, 'maxint',
          getattr(sys, 'maxsize', (2 ** 64) / 2))
+
+# Determine if our Python is three’d up:
+PY3 = sys.version_info.major > 2
 
 # Determine if we’re on PyPy:
 PYPY = hasattr(sys, 'pypy_version_info')
@@ -21,13 +28,32 @@ PYPY = hasattr(sys, 'pypy_version_info')
 # Determine if we’re in TextMate:
 TEXTMATE = 'TM_PYTHON' in os.environ
 
-import io, re, six
+import io, re
 import argparse
 import array
 import contextlib
 import decimal
-import enum
 import warnings
+
+class AutoType(object):
+    
+    """ Simple polyfill for `enum.auto` (which apparently
+        does not exist in PyPy 2 for some reason)
+    """
+    
+    def __init__(self):
+        self.count = 0
+    
+    def __call__(self, increment=1):
+        out = int(self.count)
+        self.count += increment
+        return out
+
+# Try to get `auto` from `enum`, falling back to the polyfill:
+try:
+    from enum import auto
+except ImportError:
+    auto = AutoType()
 
 # Set up some terminal-printing stuff:
 if TEXTMATE:
@@ -37,6 +63,10 @@ else:
     SEPARATOR_WIDTH = get_terminal_size(default=(100, 25))[0]
 
 print_separator = lambda: print('-' * SEPARATOR_WIDTH)
+
+if PY3:
+    unicode = str
+    long = int
 
 try:
     from collections.abc import Mapping, MutableMapping, Hashable as HashableABC
@@ -160,51 +190,115 @@ isiterable = lambda thing: anypyattrs(thing, 'iter', 'getitem')
 # q.v. `merge_two(…)` implementation sub.
 ismergeable = lambda thing: bool(hasattr(thing, 'get') and isiterable(thing))
 
+# UTILITY FUNCTIONS: getattr(…) shortcuts:
+
+no_op = lambda thing, atx, default=None: atx or default
+or_none = lambda thing, atx: getattr(thing, atx, None)
+getpyattr = lambda thing, atx, default=None: getattr(thing, '__%s__' % atx, default)
+getitem = lambda thing, itx, default=None: getattr(thing, 'get', no_op)(itx, default)
+
+accessor = lambda function, thing, *attrs: ([atx for atx in (function(thing, atx) \
+                                                 for atx in attrs) \
+                                                 if atx is not None] or [None]).pop(0)
+
+searcher = lambda function, xatx, *things: ([atx for atx in (function(thing, xatx) \
+                                                 for thing in things) \
+                                                 if atx is not None] or [None]).pop(0)
+
+attr = lambda thing, *attrs: accessor(or_none, thing, *attrs)
+pyattr = lambda thing, *attrs: accessor(getpyattr, thing, *attrs)
+item = lambda thing, *items: accessor(getitem, thing, *items)
+
+attr_search = lambda atx, *things: searcher(or_none, atx, *things)
+pyattr_search = lambda atx, *things: searcher(getpyattr, atx, *things)
+item_search = lambda itx, *things: searcher(getitem, itx, *things)
+
+# Does a class contain an attribute -- whether it uses `__dict__` or `__slots__`?
+thing_has = lambda thing, atx: atx in (pyattr(thing, 'dict', 'slots') or tuple())
+class_has = lambda cls, atx: isclasstype(cls) and thing_has(cls, atx)
+
+# Is this a class based on a `__dict__`, or one using `__slots__`?
+isslotted = lambda thing: allpyattrs('mro', 'slots')
+isdictish = lambda thing: allpyattrs('mro', 'dict')
+isslotdicty = lambda thing: allpyattrs('mro', 'slots', 'dict')
+
 clademap = {
-    'lambda'        : lambda thing: determine_name(thing) == LAMBDA,
-    'function'      : lambda thing: determine_name(thing) != LAMBDA and \
-                                    callable(thing) and \
-                                    anyattrs(thing, '__code__', 'func_code'),
     'class'         : isclass,
     'metaclass'     : ismetaclass,
-    'sequence'      : lambda thing: isinstance(thing, (tuple, list, set, frozenset, str, bytes, bytearray)),
+    'singleton'     : lambda thing: (thing is True) or \
+                                    (thing is False) or \
+                                    (thing is None) or \
+                                    (thing is Ellipsis) or \
+                                    (thing is NotImplemented),
+    'number'        : lambda thing: isinstance(thing, (int, long, float, complex)),
+    'set'           : lambda thing: isinstance(thing, (set, frozenset)),
+    'string'        : lambda thing: isinstance(thing, (str, unicode, bytes, bytearray, memoryview)),
+    'lambda'        : lambda thing: determine_name(thing) == LAMBDA or \
+                                         getpyattr(thing, 'lambda_name') == LAMBDA,
+    'function'      : lambda thing: determine_name(thing) != LAMBDA and \
+                                     not haspyattr(thing, 'lambda_name') and \
+                                          callable(thing) and \
+                                          anyattrs(thing, '__code__', 'func_code'),
+    'sequence'      : lambda thing: isinstance(thing, (tuple, list)),
     'dictionary'    : lambda thing: isinstance(thing, (dict, Mapping, MutableMapping)),
+    'iterable'      : lambda thing: (not isclasstype(thing)) and \
+                                          anypyattrs(thing, 'iter', 'getitem'),
     'instance'      : lambda thing: (not isclasstype(thing)) and \
-                                         isclass(type(thing))
+                                        isclass(type(thing))
 }
 
-@enum.unique
-class Clade(enum.Enum):
+@unique
+class Clade(Enum):
     
     """ An enumeration class for classifying exported types. """
     
-    LAMBDA      = 'lambda'
-    FUNCTION    = 'function'
-    CLASS       = 'class'
-    METACLASS   = 'metaclass'
-    SEQUENCE    = 'sequence'
-    DICTIONARY  = 'dictionary'
-    INSTANCE    = 'instance'
+    CLASS       = auto()
+    METACLASS   = auto()
+    SINGLETON   = auto()
+    NUMBER      = auto()
+    SET         = auto()
+    STRING      = auto()
+    LAMBDA      = auto()
+    FUNCTION    = auto()
+    SEQUENCE    = auto()
+    DICTIONARY  = auto()
+    ITERABLE    = auto()
+    INSTANCE    = auto()
     
     @classmethod
-    def of(cls, thing):
+    def of(cls, thing, name_hint=None):
         for clade in cls:
-            if clademap[clade.to_string()](thing):
+            if clade.predicate()(thing):
                 return clade
-        raise ValueError("can’t determine clade for thing: %s" % determine_name(thing))
+        thing_hinted_name = name_hint or determine_name(thing)
+        raise ValueError("can’t determine clade for thing: %s" % thing_hinted_name)
     
     @classmethod
     def for_string(cls, string):
         for clade in cls:
-            if clade.to_string() == string:
+            if clade.to_string() == string.lower():
                 return clade
         raise ValueError("for_string(): unknown clade name %s" % string)
     
+    @classmethod
+    def label_for(cls, thing, name_hint=None):
+        clade = cls.of(thing, name_hint=name_hint)
+        return repr(clade)
+    
     def to_string(self):
-        return str(self.value)
+        return str(self.name.lower())
+    
+    def predicate(self):
+        return clademap[self.to_string()]
     
     def __str__(self):
         return self.to_string()
+    
+    def __bytes__(self):
+        return bytes(self.to_string(), encoding=ENCODING)
+    
+    def __repr__(self):
+        return "%s.%s" % (pyattr(type(self), 'qualname', 'name'), self.name)
 
 class ExportError(NameError):
     pass
@@ -236,6 +330,29 @@ class Exporter(MutableMapping):
         """ Return the histogram of clade counts. """
         return Counter(self.__clades__)
     
+    messages = {
+        'docstr'    : "Can’t set the docstring for thing “%s” of type %s:",
+        'xclade'    : "Can’t determine a clade for thing “%s” of type %s",
+        'noname'    : "Can’t determine a name for lambda: 0x%0x"
+    }
+    
+    def classify(self, thing, named, increment=1):
+        """ Attempt to classify a thing by clade. Returns a member of the Clade enum. """
+        try:
+            clade = Clade.of(thing, name_hint=named)
+        except ValueError:
+            # no clade found
+            typename = determine_name(type(thing))
+            warnings.warn(type(self).messages['xclade'] % (named, typename),
+                          ExportWarning, stacklevel=2)
+        self.__clades__[clade] += int(increment)
+        if DEBUG:
+            print("••• \tthing: %s" % str(thing))
+            print("••• \tnamed: %s" % str(named))
+            print("••• \tclade: %s" % repr(clade))
+            print()
+        return clade
+    
     def keys(self):
         """ Get a key view on the exported items dictionary. """
         return self.__exports__.keys()
@@ -255,23 +372,6 @@ class Exporter(MutableMapping):
         if default is NoDefault:
             return self.__exports__.pop(key)
         return self.__exports__.pop(key, default)
-    
-    def classify(self, thing, named, increment=1):
-        """ Attempt to classify a thing by clade. """
-        try:
-            clade_name = Clade.of(thing).to_string()
-        except ValueError:
-            # no clade found
-            typename = determine_name(type(thing))
-            warnings.warn(type(self).messages['xclade'] % (named, typename),
-                          ExportWarning, stacklevel=2)
-        self.__clades__[clade_name] += int(increment)
-    
-    messages = {
-        'docstr'    : "Can’t set the docstring for thing “%s” of type %s:",
-        'xclade'    : "Can’t determine a clade for thing “%s” of type %s",
-        'noname'    : "Can’t determine a name for lambda: 0x%0x"
-    }
     
     def export(self, thing, name=None, doc=None):
         """ Add a function -- or any object, really -- to the export list.
@@ -403,12 +503,21 @@ class Exporter(MutableMapping):
         return thingname_search_by_id.cache_info()
     
     def _print_export_list(self):
-        from pprint import pprint
+        from pprint import pformat
+        case_sort = lambda c: c.lower() if c.isupper() else c.upper()
         exports = self.exports()
+        keys = sorted(exports.keys(), key=case_sort, reverse=True)
+        vals = (getitem(exports, key) for key in keys)
         print_separator()
-        print("EXPORTS: (length = %i)" % len(exports))
+        print("≠≠≠ EXPORTS: (length = %i)" % len(keys))
         print()
-        pprint(exports, indent=4, width=SEPARATOR_WIDTH)
+        # pprint(OrderedDict(zip(keys, vals)), width=SEPARATOR_WIDTH)
+        od = OrderedDict.fromkeys(keys)
+        od.update(zip(keys, vals))
+        # pprint(od, width=SEPARATOR_WIDTH, compact=True)
+        for idx, (key, value) in enumerate(od.items()):
+            prelude = "%03d → [ %24s ] →" % (idx, key)
+            print(prelude, " %s" % re.subn(r'\n', '\n' + " " * (len(prelude) + 2), pformat(value, width=SEPARATOR_WIDTH, compact=True), flags=re.MULTILINE)[0])
     
     def _print_clade_histogram(self):
         from pprint import pprint
@@ -416,14 +525,14 @@ class Exporter(MutableMapping):
         total = sum(clade_histogram.values())
         unaccounted = len(self) - total
         print_separator()
-        print("CLADE-CLASSIFICATION HISTOGRAM: (total = %i, unaccounted = %i)" % (total, unaccounted))
+        print("≠≠≠ CLADE-CLASSIFICATION HISTOGRAM: (total = %i, unaccounted = %i)" % (total, unaccounted))
         print()
         pprint(clade_histogram)
     
     def _print_cache_info(self):
         from pprint import pprint
         print_separator()
-        print("THINGNAME SEARCH-BY-ID CACHE INFO:")
+        print("≠≠≠ THINGNAME SEARCH-BY-ID CACHE INFO:")
         print()
         pprint(self.cache_info())
     
@@ -444,7 +553,8 @@ class Exporter(MutableMapping):
         self._print_clade_histogram()
         
         # Print the cache info
-        self._print_cache_info()
+        if PY3:
+            self._print_cache_info()
         
         # Print closing separators
         print_separator()
@@ -528,7 +638,16 @@ def itermoduleids(module):
     return zip(keys, ids)
 
 # Q.v. `thingname_search_by_id(…)` function sub.
-cache = lru_cache(maxsize=256, typed=False)
+cache = lru_cache(maxsize=128, typed=False)
+
+# This goes against all logic and reason, but it fucking seems
+# to fix the problem of constants, etc showing up erroneously
+# as members of the `__console__` or `__main__` modules:
+
+# sysmods = lambda: tuple(filterfalse(lambda module: ispyname(determine_name(module) or '____'),
+#                                     reversed(uniquify(*sys.modules.values()))))
+
+sysmods = lambda: reversed(uniquify(*sys.modules.values()))
 
 @cache
 def thingname_search_by_id(thingID):
@@ -553,7 +672,7 @@ def thingname_search_by_id(thingID):
     # search space) by around 100 fucking modules (!) every time!!
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        for module in frozenset(sys.modules.values()):
+        for module in sysmods():
             for key, valueID in itermoduleids(module):
                 if valueID == thingID:
                     return module, key
@@ -572,38 +691,6 @@ def thingname_search(thing):
         uses the LRU cache from `functools`.
     """
     return thingname_search_by_id(id(thing))[1]
-
-# UTILITY FUNCTIONS: getattr(…) shortcuts:
-
-no_op = lambda thing, atx, default=None: atx or default
-or_none = lambda thing, atx: getattr(thing, atx, None)
-getpyattr = lambda thing, atx, default=None: getattr(thing, '__%s__' % atx, default)
-getitem = lambda thing, itx, default=None: getattr(thing, 'get', no_op)(itx, default)
-
-accessor = lambda function, thing, *attrs: ([atx for atx in (function(thing, atx) \
-                                                 for atx in attrs) \
-                                                 if atx is not None] or [None]).pop(0)
-
-searcher = lambda function, xatx, *things: ([atx for atx in (function(thing, xatx) \
-                                                 for thing in things) \
-                                                 if atx is not None] or [None]).pop(0)
-
-attr = lambda thing, *attrs: accessor(or_none, thing, *attrs)
-pyattr = lambda thing, *attrs: accessor(getpyattr, thing, *attrs)
-item = lambda thing, *items: accessor(getitem, thing, *items)
-
-attr_search = lambda atx, *things: searcher(or_none, atx, *things)
-pyattr_search = lambda atx, *things: searcher(getpyattr, atx, *things)
-item_search = lambda itx, *things: searcher(getitem, itx, *things)
-
-# Does a class contain an attribute -- whether it uses `__dict__` or `__slots__`?
-thing_has = lambda thing, atx: atx in (pyattr(thing, 'dict', 'slots') or tuple())
-class_has = lambda cls, atx: isclasstype(cls) and thing_has(cls, atx)
-
-# Is this a class based on a `__dict__`, or one using `__slots__`?
-isslotted = lambda thing: allpyattrs('mro', 'slots')
-isdictish = lambda thing: allpyattrs('mro', 'dict')
-isslotdicty = lambda thing: allpyattrs('mro', 'slots', 'dict')
 
 @export
 def slots_for(cls):
@@ -715,7 +802,7 @@ class SimpleNamespace(object):
     def __repr__(self):
         items = ("{}={!r}".format(key, self.__dict__[key]) for key in sorted(self))
         return "{}({}) @ {}".format(determine_name(type(self)),
-                          ", ".join(items),          id(self))
+                          ",\n\t\t".join(items),     id(self))
     
     def __eq__(self, other):
         return self.__dict__ == asdict(other)
@@ -747,6 +834,14 @@ class Namespace(SimpleNamespace, MutableMapping):
     def __all__(self):
         """ Get a tuple with all the stringified keys in the Namespace. """
         return tuple(str(key) for key in sorted(self))
+    
+    def __repr__(self):
+        from pprint import pformat
+        return "{}({}) @ {}".format(determine_name(type(self)),
+                            pformat(self.__dict__,
+                                    indent=16,
+                                    width=SEPARATOR_WIDTH),
+                                    id(self))
     
     def __len__(self):
         return len(self.__dict__)
@@ -877,8 +972,12 @@ else:
                    numpy.ma.MaskedArray, array.ArrayType,
                                          bytearray, memoryview)
 
+try:
+    from six import string_types
+except (ImportError, SyntaxError):
+    string_types = uniquify(str, unicode)
+
 bytes_types = (bytes, bytearray)
-string_types = six.string_types
 path_classes = tuplize(argparse.FileType, or_none(os, 'PathLike'), Path) # Path may be “None” in disguise
 path_types = string_types + bytes_types + path_classes
 file_types = (io.TextIOBase, io.BufferedIOBase, io.RawIOBase, io.IOBase)
@@ -889,7 +988,7 @@ callable_types = (types.Function,
                   types.BuiltinFunction,
                   types.BuiltinMethod)
 
-if six.PY3 and not PYPY:
+if PY3 and not PYPY:
     callable_types += (
                   types.Coroutine,
                   types.ClassMethodDescriptor,
@@ -900,6 +999,21 @@ if six.PY3 and not PYPY:
 ispathtype = lambda cls: issubclass(cls, path_types)
 ispath = lambda thing: graceful_issubclass(thing, path_types) or haspyattr(thing, 'fspath')
 isvalidpath = lambda thing: ispath(thing) and os.path.exists(os.path.expanduser(thing))
+
+class FilesystemError(IOError):
+    """ A problem in dealing with the filesystem """
+    pass
+
+@export
+def ensure_path_is_valid(pth):
+    """ Raise an exception if we can’t write to the specified path """
+    if os.path.exists(pth):
+        if os.path.isdir(pth):
+            raise FilesystemError("Can’t save over directory: %s" % pth)
+        raise FilesystemError("Output file exists: %s" % pth)
+    parent_dir = os.path.dirname(pth)
+    if not os.path.isdir(parent_dir):
+        raise FilesystemError("Directory doesn’t exist: %s" % parent_dir)
 
 isnumber = lambda thing: graceful_issubclass(thing, numeric_types)
 isnumeric = lambda thing: graceful_issubclass(thing, numeric_types)
@@ -984,7 +1098,6 @@ def qualified_name(thing):
 
 # OS UTILITIES: get the current process’ umask value
 
-@export
 @lru_cache(maxsize=1)
 def current_umask():
     """ Get the current umask value (cached on Python 3 and up). """
@@ -1004,21 +1117,84 @@ def masked_permissions(perms=0o666):
     
 @export
 def isenum(cls):
-    """ Predicate function to ascertain whether a class is an Enum. """
-    return enum.Enum in cls.__mro__
+    """ isenum(cls) → boolean predicate, True if cls descends from Enum. """
+    if not hasattr(cls, '__mro__'):
+        return False
+    return Enum in cls.__mro__
 
 @export
 def enumchoices(cls):
-    """ Return a tuple containing the names of an Enum class’ members. """
+    """ isenum(cls) → Return a tuple of strings naming the members of an Enum class. """
+    if not isenum(cls):
+        return tuple()
     return tuple(choice.name for choice in cls)
+
+# TEXT UTILITIES: `sanitize(…)` to remove high-code-point glyphs
+
+@export
+def sanitize(text):
+    """ Remove specific unicode strings, in favor of ASCII-friendly versions """
+    sanitized = unicode(text)
+    for sanitizer, substitution in sanitize.sanitizers:
+        sanitized, _ = sanitizer.subn(substitution, sanitized)
+    return sanitized
+
+# Regular expression compiler shortcut:
+sanitize.re = lambda string: re.compile(string, re.MULTILINE)
+
+# Sanitization regexes and their replacement strings:
+sanitize.sanitizers = (
+    (sanitize.re(r"[“”]"),              '"'),
+    (sanitize.re(r"[‘’]"),              "'"),
+    (sanitize.re(r"[«»]"),              ":"),
+    (sanitize.re(r"[äáª]"),             "a"),
+    (sanitize.re(r"[ëé]"),              "e"),
+    (sanitize.re(r"[ïí]"),              "i"),
+    (sanitize.re(r"[öóº]"),             "o"),
+    (sanitize.re(r"[üú]"),              "u"),
+    (sanitize.re(r"‽"),                 "?!"),
+    (sanitize.re(r"¡"),                 "!"),
+    (sanitize.re(r"¿"),                 "?"),
+    (sanitize.re(r"±"),                 "+/-"),
+    (sanitize.re(r"÷"),                 "/"),
+    (sanitize.re(r"•"),                 "*"),
+    (sanitize.re(r"ˆ"),                 "^"),
+    (sanitize.re(r"†"),                 "<*>"),
+    (sanitize.re(r"‡"),                 "<**>"),
+    (sanitize.re(r"§"),                 "$"),
+    (sanitize.re(r"¥"),                 "Y"),
+    (sanitize.re(r"¢"),                 "c"),
+    (sanitize.re(r"ƒ"),                 "f"),
+    (sanitize.re(r"∫"),                 "S"),
+    (sanitize.re(r"ß"),                 "ss"),
+    (sanitize.re(r"ﬂ"),                 "fl"),
+    (sanitize.re(r"ﬁ"),                 "fi"),
+    (sanitize.re(r"£"),                 "lb."),
+    (sanitize.re(r""),                 "Apple"),
+    (sanitize.re(r"⌘"),                 "command"),
+    (sanitize.re(r"∞"),                 "infinity"),
+    (sanitize.re(r'√(?P<arg>[\w\d]*)'), 'sqrt(\g<arg>)'),
+    (sanitize.re(r"¶"),                 "[P]"),
+    (sanitize.re(r"[∂∆]"),              "d"),
+    (sanitize.re(r"Ø"),                 "0"),
+    (sanitize.re(r"→"),                 "->"),
+    (sanitize.re(r"¬"),                 "-]"),
+    (sanitize.re(r"…"),                 "..."),
+    (sanitize.re(r"©"),                 "(c)"),
+    (sanitize.re(r"®"),                 "(r)"),
+    (sanitize.re(r"™"),                 "(tm)"),
+    (sanitize.re(r"—"),                 "-"))
+
 
 # THE MODULE EXPORTS:
 export(print_separator, name='print_separator', doc="print_separator() → prints a line of dashes as wide as it believes the terminal width to be")
-export(pytuple,         name='pytuple',         doc="pytuple(*attrs) → turns ('do', 're', 'mi') into ('__do__', '__re__', '__mi__')")
 export(doctrim)
+
+export(ispyname,        name='ispyname',        doc="ispyname(string) → boolean predicate, True if string looks like a __special__ (née “dunder”) python attribute")
+export(pytuple,         name='pytuple',         doc="pytuple(*attrs) → turns ('do', 're', 'mi') into ('__do__', '__re__', '__mi__')")
 export(determine_name)
 
-export(Clade)
+export(AutoType)
 export(ExportError,     name='ExportError',     doc="An exception raised during a call to export()")
 export(ExportWarning,   name='ExportWarning',   doc="A warning issued during a call to export()")
 export(NoDefault,       name='NoDefault',       doc="A singleton class with no value, used to represent a lack of a default value")
@@ -1034,6 +1210,10 @@ export(anypyattrs,      name='anypyattrs',      doc="anypyattrs(thing, *attribut
 export(allpyattrs,      name='allpyattrs',      doc="allpyattrs(thing, *attributes) → boolean predicate, shortcut for all(haspyattr(thing, atx) for atx in attributes)")
 export(isiterable,      name='isiterable',      doc="isiterable(thing) → boolean predicate, True if thing can be iterated over")
 export(ismergeable,     name='ismergeable',     doc="ismergeable(thing) → boolean predicate, True if thing is a valid operand to merge(…) or merge_as(…)")
+
+export(Clade)
+export(clademap,        name='clademap')
+export(sysmods,         name='sysmods',         doc="sysmods() → shortcut for reversed(tuple(frozenset(sys.modules.values()))) …OK? I know. It’s not my finest work, but it works.")
 
 export(no_op,           name='no_op',           doc="no_op(thing, attribute[, default]) → shortcut for (attribute or default)")
 export(or_none,         name='or_none',         doc="or_none(thing, attribute) → shortcut for getattr(thing, attribute, None)")
@@ -1058,6 +1238,7 @@ export(isslotdicty,     name='isslotdicty',     doc="isslotdicty(thing) → bool
 # NO DOCS ALLOWED:
 export(BUILTINS,        name='BUILTINS')
 export(DEBUG,           name='DEBUG')
+export(ENCODING,        name='ENCODING')
 export(LAMBDA,          name='LAMBDA')
 export(MAXINT,          name='MAXINT')
 export(PYPY,            name='PYPY')
@@ -1065,6 +1246,7 @@ export(QUALIFIER,       name='QUALIFIER')
 export(SEPARATOR_WIDTH, name='SEPARATOR_WIDTH')
 export(TEXTMATE,        name='TEXTMATE')
 export(VERBOTEN,        name='VERBOTEN')
+export(current_umask,   name='current_umask')
 
 export(types,           name='types',       doc=""" A Namespace instance containing aliases into the `types` module,
                                                     sans the irritating and lexically unnecessary “Type” suffix --
@@ -1109,26 +1291,35 @@ export(Exporter) # hahaaaaa
 __all__, __dir__ = exporter.all_and_dir()
 
 def test_attr_accessor():
-    print("» Checking “attr(•) accessor …”")
+    """ » Checking “attr(•) accessor …” """
+    print(test_attr_accessor.__doc__)
     print()
     
+    # plistlib on Python 2.x uses those ungainly `writePlistToString`
+    # methods; on Python 3.x you have the more reasonable and expected
+    # `dumps` and `loads` calls… thus, attr(…) will bridge the gap:
     import plistlib
     dump = attr(plistlib, 'dumps', 'writePlistToString')
     load = attr(plistlib, 'loads', 'readPlistFromString')
     assert dump is not None
     assert load is not None
+    
+    # When attr(…) can't find an attribute matching any of the names
+    # provided, you get None back:
     wat = attr(plistlib, 'yo_dogg', 'wtf_hax')
     assert wat is None
 
 def test_boolean_predicates():
-    print("» Checking basic isXXX(•) functions …")
+    """ » Checking basic isXXX(•) functions … """
+    print(test_boolean_predicates.__doc__)
     print()
     
     assert graceful_issubclass(int, int)
     
     assert ispathtype(str)
     assert ispathtype(bytes)
-    assert ispathtype(os.PathLike)
+    if hasattr(os, 'PathLike'):
+        assert ispathtype(os.PathLike)
     assert not ispathtype(SimpleNamespace)
     assert ispath('/yo/dogg')
     assert not ispath(SimpleNamespace())
@@ -1168,7 +1359,8 @@ def test_boolean_predicates():
     assert isfunction(SimpleNamespace) # classes are callable!
 
 def test_lambda_naming():
-    print("» Checking lambda naming …")
+    """ » Checking lambda naming … """
+    print(test_lambda_naming.__doc__)
     
     lammy = lambda: None
     print("» lambda name = %s" % lammy.__name__)
@@ -1183,7 +1375,8 @@ def test_lambda_naming():
     print()
 
 def test_namespace_instance_docstring():
-    print("» Checking “types.__doc__ …”")
+    """ » Checking “types.__doc__ …” """
+    print(test_namespace_instance_docstring.__doc__)
     print()
     
     print_separator()
@@ -1276,11 +1469,12 @@ def test_dict_and_namespace_merge():
     print()
 
 def test_qualified_name():
-    print("» Checking “qualified_name(¬) …”")
+    """ » Checking “qualified_name(¬) …” """
+    print(test_qualified_name.__doc__)
     print()
     
-    assert qualified_name(BUILTINS) == '__main__.BUILTINS'
-    assert qualified_name(types) == '__main__.types'
+    assert qualified_name(BUILTINS) == '%s.BUILTINS' % __name__
+    assert qualified_name(types) == '%s.types' % __name__
     
     print_separator()
     print('qualified_name(BUILTINS):', qualified_name(BUILTINS))
@@ -1289,21 +1483,29 @@ def test_qualified_name():
     print()
 
 def test_qualified_import():
-    print("» Checking “qualified_import(¬) …”")
+    """ » Checking “qualified_import(¬) …” """
+    print(test_qualified_import.__doc__)
+    print()
     print()
     
     print_python_banner = qualified_import('replenv.print_python_banner')
     print_warning       = qualified_import('replenv.print_warning')
     replenv_modules     = qualified_import('replenv.modules')
+    python2_expires     = qualified_import('replenv.python2_expires')
+    is_python2_dead     = qualified_import('replenv.is_python2_dead')
     
     assert qualified_name(print_python_banner) == 'replenv.print_python_banner'
     assert qualified_name(print_warning)       == 'replenv.print_warning'
-    assert qualified_name(replenv_modules)     == 'replenv.modules'
+    assert qualified_name(replenv_modules)     == 'replenv.modules' # huh.
+    assert qualified_name(python2_expires)     == 'replenv.python2_expires'
+    assert qualified_name(is_python2_dead)     == 'replenv.is_python2_dead'
     
     print_separator()
-    print('qualified_name(print_python_banner):', qualified_name(print_python_banner))
-    print('qualified_name(print_warning):',       qualified_name(print_warning))
-    print('qualified_name(replenv_modules):',     qualified_name(replenv_modules))
+    print('qualified_name(print_python_banner):', qualified_name(print_python_banner), '', repr(Clade.of(print_python_banner)))
+    print('qualified_name(print_warning):      ',       qualified_name(print_warning), '      ', repr(Clade.of(print_warning)))
+    print('qualified_name(replenv_modules):    ',     qualified_name(replenv_modules), '            ', repr(Clade.of(replenv_modules)))
+    print('qualified_name(python2_expires):    ',     qualified_name(python2_expires), '    ', repr(Clade.of(python2_expires)))
+    print('qualified_name(is_python2_dead):    ',     qualified_name(is_python2_dead), '    ', repr(Clade.of(is_python2_dead)))
     print_separator()
     print()
 
@@ -1320,12 +1522,14 @@ def test():
     test_namespace_instance_docstring()
     test_dict_and_namespace_merge()
     test_qualified_name()
-    test_qualified_import()
+    # test_qualified_import()
     
     # Re-print search-by-ID cache info and clade histogram:
+    print("≠≠≠ POST-HOC EXPORTER STATS:")
     exporter._print_clade_histogram()
     # print_separator()
-    exporter._print_cache_info()
+    if PY3:
+        exporter._print_cache_info()
     print_separator()
     print()
     
