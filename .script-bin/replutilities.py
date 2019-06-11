@@ -403,9 +403,9 @@ def thingname(original, *modules):
         in the context of a module in which it resides
     """
     inquestion = id(original)
-    for module in frozenset(modules):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for module in frozenset(modules):
             for key, thing in itermodule(module):
                 if id(thing) == inquestion:
                     return key
@@ -445,9 +445,9 @@ def thingname_search_by_id(thingID):
     # on my system, like on all my REPLs, uniquifying the modules
     # winnowed the module list (and therefore, this functions’
     # search space) by around 100 fucking modules (!) every time!!
-    for module in frozenset(sys.modules.values()):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for module in frozenset(sys.modules.values()):
             for key, valueID in itermoduleids(module):
                 if valueID == thingID:
                     return module, key
