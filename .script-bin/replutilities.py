@@ -192,6 +192,9 @@ ismergeable = lambda thing: bool(hasattr(thing, 'get') and isiterable(thing))
 
 # UTILITY FUNCTIONS: getattr(…) shortcuts:
 
+always = lambda thing: True
+never = lambda thing: False
+
 no_op = lambda thing, atx, default=None: atx or default
 or_none = lambda thing, atx: getattr(thing, atx, None)
 getpyattr = lambda thing, atx, default=None: getattr(thing, '__%s__' % atx, default)
@@ -232,7 +235,8 @@ clademap = {
                                     (thing is NotImplemented),
     'number'        : lambda thing: isinstance(thing, (int, long, float, complex)),
     'set'           : lambda thing: isinstance(thing, (set, frozenset)),
-    'string'        : lambda thing: isinstance(thing, (str, unicode, bytes, bytearray, memoryview)),
+    'string'        : lambda thing: isinstance(thing, (str, unicode)),
+    'bytes'         : lambda thing: isinstance(thing, (bytes, bytearray, memoryview)),
     'lambda'        : lambda thing: determine_name(thing) == LAMBDA or \
                                          getpyattr(thing, 'lambda_name') == LAMBDA,
     'function'      : lambda thing: determine_name(thing) != LAMBDA and \
@@ -247,29 +251,39 @@ clademap = {
                                         isclass(type(thing))
 }
 
+SINGLETONS = (type(None), bool, type(Ellipsis), type(NotImplemented))
+
+def predicates_for_types(*types):
+    predicates = []
+    for classtype in frozenset(types):
+        predicates.append(lambda thing: isinstance(thing, classtype))
+    return tuple(predicates)
+
 @unique
 class Clade(Enum):
     
     """ An enumeration class for classifying exported types. """
     
-    CLASS       = auto()
-    METACLASS   = auto()
-    SINGLETON   = auto()
-    NUMBER      = auto()
-    SET         = auto()
-    STRING      = auto()
-    LAMBDA      = auto()
-    FUNCTION    = auto()
-    SEQUENCE    = auto()
-    DICTIONARY  = auto()
-    ITERABLE    = auto()
-    INSTANCE    = auto()
+    CLASS       = (isclass, never)
+    METACLASS   = (ismetaclass, never)
+    SINGLETON   = (SINGLETONS,                      clademap['singleton'], never)
+    NUMBER      = ((int, long, float, complex),     clademap['number'], never)
+    SET         = ((set, frozenset),                clademap['set'], never)
+    STRING      = ((str, unicode),                  clademap['string'], never)
+    BYTES       = ((bytes, bytearray, memoryview),  clademap['bytes'], never)
+    LAMBDA      =                                  (clademap['lambda'], never)
+    FUNCTION    =                                  (clademap['function'], never)
+    SEQUENCE    = ((tuple, list),                   clademap['sequence'], never)
+    DICTIONARY  = ((dict, Mapping, MutableMapping), clademap['dictionary'], never)
+    ITERABLE    =                                  (clademap['iterable'], never)
+    INSTANCE    =                                  (clademap['instance'], never)
     
     @classmethod
     def of(cls, thing, name_hint=None):
         for clade in cls:
-            if clade.predicate()(thing):
-                return clade
+            for predicate in clade.predicates:
+                if predicate(thing):
+                    return clade
         thing_hinted_name = name_hint or determine_name(thing)
         raise ValueError("can’t determine clade for thing: %s" % thing_hinted_name)
     
@@ -285,11 +299,16 @@ class Clade(Enum):
         clade = cls.of(thing, name_hint=name_hint)
         return repr(clade)
     
+    def __init__(self, *predicates):
+        typelist = tuple()
+        if type(predicates[0]) is tuple:
+            typelist, *predicates = predicates
+            if not all(isclasstype(putative) for putative in typelist):
+                raise TypeError("non-class-type item in clade definition")
+        self.predicates = predicates_for_types(*typelist) + tuple(predicates)
+    
     def to_string(self):
         return str(self.name.lower())
-    
-    def predicate(self):
-        return clademap[self.to_string()]
     
     def __str__(self):
         return self.to_string()
@@ -336,7 +355,7 @@ class Exporter(MutableMapping):
         'noname'    : "Can’t determine a name for lambda: 0x%0x"
     }
     
-    def classify(self, thing, named, increment=1):
+    def classify(self, thing, named):
         """ Attempt to classify a thing by clade. Returns a member of the Clade enum. """
         try:
             clade = Clade.of(thing, name_hint=named)
@@ -345,12 +364,21 @@ class Exporter(MutableMapping):
             typename = determine_name(type(thing))
             warnings.warn(type(self).messages['xclade'] % (named, typename),
                           ExportWarning, stacklevel=2)
-        self.__clades__[clade] += int(increment)
         if DEBUG:
             print("••• \tthing: %s" % str(thing))
             print("••• \tnamed: %s" % str(named))
             print("••• \tclade: %s" % repr(clade))
             print()
+        return clade
+    
+    def increment(self, thing, named, increment=1):
+        clade = self.classify(thing, named=named)
+        self.__clades__[clade] += int(increment)
+        return clade
+    
+    def decrement(self, thing, named, decrement=-1):
+        clade = self.classify(thing, named=named)
+        self.__clades__[clade] += int(decrement)
         return clade
     
     def keys(self):
@@ -368,7 +396,7 @@ class Exporter(MutableMapping):
     
     def pop(self, key, default=NoDefault):
         if key in self.__exports__:
-            self.classify(self[key], named=key, increment=-1)
+            self.decrement(self[key], named=key)
         if default is NoDefault:
             return self.__exports__.pop(key)
         return self.__exports__.pop(key, default)
@@ -414,7 +442,7 @@ class Exporter(MutableMapping):
             raise ExportError("can’t export an exporter instance directly")
         
         # Attempt to classify the item by clade:
-        self.classify(thing, named=named)
+        self.increment(thing, named=named)
         
         # At this point, “named” is valid -- if we were passed
         # a lambda, try to rename it with either our valid name,
@@ -503,6 +531,11 @@ class Exporter(MutableMapping):
         return thingname_search_by_id.cache_info()
     
     def _print_export_list(self):
+        """ Print out a prettified (IMHO at any rate) representation of
+            the current module export list.
+            
+            N.B. This function is a fucking illegible mess at the moment
+        """
         from pprint import pformat
         case_sort = lambda c: c.lower() if c.isupper() else c.upper()
         exports = self.exports()
@@ -520,33 +553,56 @@ class Exporter(MutableMapping):
             print(prelude, " %s" % re.subn(r'\n', '\n' + " " * (len(prelude) + 2), pformat(value, width=SEPARATOR_WIDTH, compact=True), flags=re.MULTILINE)[0])
     
     def _print_clade_histogram(self):
+        """ Print out a bar graph of the current clade histogram.
+            Like e.g. this:
+            
+            ---------------------------------------------------------------------------------
+            ≠≠≠ CLASSIFICATION HISTOGRAM
+            ≠≠≠ Clades: 8 (of 12)
+            ≠≠≠ Things: 102 total, 0 unclassified
+            
+            00 → [       LAMBDA ] → 46 • 45% ••••••••••••••••••••••••••••••••••••••••••••••
+            01 → [     FUNCTION ] → 28 • 27% ••••••••••••••••••••••••••••
+            02 → [     SEQUENCE ] → 10 •  9% ••••••••••
+            03 → [        CLASS ] →  8 •  7% ••••••••
+            04 → [    SINGLETON ] →  3 •  2% •••
+            05 → [       STRING ] →  3 •  2% •••
+            06 → [   DICTIONARY ] →  2 •  1% ••
+            07 → [       NUMBER ] →  2 •  1% ••
+            
+            ≠≠≠ 4 leaf clades:
+            ≠≠≠ instance, iterable, metaclass, set
+            
+            ---------------------------------------------------------------------------------
+        """
         clade_histogram = self.clade_histogram()
         total = sum(clade_histogram.values())
         unclassified = len(self) - total
-        leafclades = frozenset(Clade) - frozenset(clade_histogram.keys())
         print_separator()
         print("≠≠≠ CLASSIFICATION HISTOGRAM")
         print("≠≠≠ Clades: %i (of %i)" % (len(clade_histogram), len(Clade)))
         print("≠≠≠ Things: %i total, %i unclassified" % (total, unclassified))
-        # print("≠≠≠ Clades: %i (of %i), Items: %i, Unclassified: %i" % (len(clade_histogram),
-        #                                                                len(Clade),
-        #                                                                total,
-        #                                                                unclassified))
         print()
         for idx, (clade, count) in enumerate(sorted(clade_histogram.items(),
                                                     key=lambda item: item[1],
                                                     reverse=True)):
-            prelude = "%02d → [ %12s ] → %2i • %s%%" % (idx, clade.name, count, str(int((count / total) * 100)).rjust(2))
-            print(prelude, "•" * count)
+            prelude = "%02d → [ %12s ] → %2i • %s%%" % (idx,
+                                                        clade.name,
+                                                        count,
+                                                        str(int((count / total) * 100)).rjust(2)) # percent
+            print(prelude, "•" * count) # ASCII histogram bar graph
         print()
+        leafclades = frozenset(Clade) - frozenset(clade_histogram.keys())
         if len(leafclades) > 0:
-            # len(Clade) - len(clade_histogram))
             print("≠≠≠ %i leaf clades:" % len(leafclades))
             print("≠≠≠ %s" % ", ".join(sorted(clade.to_string() for clade in leafclades)))
             print()
         
     
     def _print_cache_info(self):
+        """ Print out the “CacheInfo” namedtuple from the search-by-ID
+            cached thingname function (q.v. “cache_info()” method supra.)
+        """
         from pprint import pprint
         print_separator()
         print("≠≠≠ THINGNAME SEARCH-BY-ID CACHE INFO:")
@@ -557,7 +613,6 @@ class Exporter(MutableMapping):
         """ Pretty-print the current list of exported things """
         # Sanity-check the modules’ __dir__ and __all__ attributes
         exports = self.exports()
-        # cladehisto = self.clade_histogram()
         
         assert list(module_all) == module_dir()
         assert len(module_all) == len(module_dir())
@@ -591,12 +646,12 @@ class Exporter(MutableMapping):
     
     def __setitem__(self, key, value):
         if key in self.__exports__:
-            self.classify(self[key], named=key, increment=-1)
-        self.classify(value, named=key)
+            self.decrement(self[key], named=key)
+        self.increment(value, named=key)
         self.__exports__[key] = value
     
     def __delitem__(self, key):
-        self.classify(self[key], named=key, increment=-1)
+        self.decrement(self[key], named=key)
         del self.__exports__[key]
     
     def __bool__(self):
@@ -654,16 +709,31 @@ def itermoduleids(module):
     ids = (id(getattr(module, key)) for key in keys)
     return zip(keys, ids)
 
+# UTILITY FUNCTIONS: helpers for builtin container types:
+
+@export
+def tuplize(*items):
+    """ Return a new tuple containing all non-`None` arguments """
+    return tuple(item for item in items if item is not None)
+
+@export
+def uniquify(*items):
+    """ Return a tuple with a unique set of all non-`None` arguments """
+    return tuple(frozenset(item for item in items if item is not None))
+
+@export
+def listify(*items):
+    """ Return a new list containing all non-`None` arguments """
+    return list(item for item in items if item is not None)
+
 # Q.v. `thingname_search_by_id(…)` function sub.
 cache = lru_cache(maxsize=128, typed=False)
 
 # This goes against all logic and reason, but it fucking seems
 # to fix the problem of constants, etc showing up erroneously
-# as members of the `__console__` or `__main__` modules:
-
-# sysmods = lambda: tuple(filterfalse(lambda module: ispyname(determine_name(module) or '____'),
-#                                     reversed(uniquify(*sys.modules.values()))))
-
+# as members of the `__console__` or `__main__` modules –
+# a problem which, I should mention, is present in the operation
+# of the `pickle.whichmodule(…)` function (!)
 sysmods = lambda: reversed(uniquify(*sys.modules.values()))
 
 @cache
@@ -738,22 +808,7 @@ def determine_module(thing):
            determine_name(
            thingname_search_by_id(id(thing))[0])
 
-# UTILITY FUNCTIONS: helpers for builtin container types:
-
-@export
-def tuplize(*items):
-    """ Return a new tuple containing all non-`None` arguments """
-    return tuple(item for item in items if item is not None)
-
-@export
-def uniquify(*items):
-    """ Return a tuple with a unique set of all non-`None` arguments """
-    return tuple(frozenset(item for item in items if item is not None))
-
-@export
-def listify(*items):
-    """ Return a new list containing all non-`None` arguments """
-    return list(item for item in items if item is not None)
+# UTILITY FUNCTIONS: dictionary-merging
 
 def merge_two(one, two, cls=dict):
     """ Merge two dictionaries into an instance of the specified class
@@ -1526,6 +1581,32 @@ def test_qualified_import():
     print_separator()
     print()
 
+def test_determine_module():
+    """ » Checking `determine_module(…)` against `pickle.whichmodule(…)` …"""
+    print(test_determine_module.__doc__)
+    print()
+    import pickle
+    mismatches = 0
+    print_separator()
+    # print()
+    for name, thing in exporter.exports().items():
+        clade = Clade.of(thing, name_hint=name)
+        determination = determine_module(thing)
+        whichmodule = pickle.whichmodule(thing, None)
+        try:
+            assert determination == whichmodule
+        except AssertionError:
+            mismatches += 1
+            print("»»» Module-lookup mismatch for %s “%s”" % (clade.to_string(), name))
+            print("»»»   determine_module(…) → %s" % determination)
+            print("»»» pickle.whichmodule(…) → %s" % whichmodule)
+            print()
+    
+    print("≠≠≠ TOTAL EXPORTED THING COUNT: %i" % len(exporter))
+    print("≠≠≠ TOTAL MISMATCHES FOUND: %i" % mismatches)
+    print_separator()
+    print()
+
 def test():
     """ Inline tests for replutilities.py """
     
@@ -1539,7 +1620,9 @@ def test():
     test_namespace_instance_docstring()
     test_dict_and_namespace_merge()
     test_qualified_name()
-    test_qualified_import()
+    if not TEXTMATE:
+        test_qualified_import()
+    test_determine_module()
     
     # Re-print search-by-ID cache info and clade histogram:
     print("≠≠≠ POST-HOC EXPORTER STATS:")

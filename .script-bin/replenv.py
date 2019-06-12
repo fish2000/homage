@@ -181,12 +181,13 @@ import termcolor
 import types
 import xerox
 
-# Determine if we’re on PyPy:
+# Determine if we’re on PyPy and/or Python 3:
+PY3 = sys.version_info.major > 2
 PYPY = hasattr(sys, 'pypy_version_info')
 prefix = PYPY and 'pypy' or 'python'
 
 # Configure ANSI-color python banner, per python version:
-if six.PY3:
+if PY3:
     banner = banners.get('%s3.%s' % (prefix, sys.version_info.minor), banners['%s3.x' % prefix])
     banner_color = colorama.Fore.CYAN
 else:
@@ -231,11 +232,12 @@ __all__ = ('Image',
            'print_python_banner',
            'print_warning', 'banner',
                             'banner_color',
-           'modules')
+           'modules',
+           'is_python2_dead', 'python2_expires')
 
 now = datetime.datetime.now
 python2_expires = 'January 1st, 2020'
-is_python2_dead = now() >= now().strptime(python2_expires, '%B %dst, %Y')
+is_python2_dead = now() >= now().strptime(python2_expires, '%B %dst, %Y') and ['YES'] or []
 
 try:
     from functools import reduce
@@ -243,12 +245,12 @@ except (ImportError, SyntaxError):
     pass
 
 try:
-    if six.PY3:
+    if PY3:
         from replpy3 import *
 except (AttributeError, SyntaxError):
     pass
 else:
-    if six.PY3:
+    if PY3:
         __all__ += (u'Σ',)
 
 try:
@@ -327,7 +329,7 @@ else:
     colorama.init()
     print_python_banner(banner, banner_color)
 
-if not six.PY3:
+if not PY3:
     if is_python2_dead:
         warning = u"∞§• ¡LOOK OUT! Python 2.x has been officially declared DEAD!!!!!!!\n"
     else:
