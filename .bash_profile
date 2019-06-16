@@ -166,6 +166,14 @@ from __future__ import print_function;import os;\
 [print(var) for var in sorted(os.environ.keys())]\
 ' | columnize"
 
+alias syspath="python -c '\
+from __future__ import print_function;import sys, site;\
+site.removeduppaths();\
+print(\":\".join(sys.path).strip(\":\"))\
+'"
+
+export BASE_PYTHONPATH="$(syspath)"
+
 # Include private Bash stuff:
 bash_private=${bashconfig}/private.bash
 if [[ -f $bash_private ]]; then

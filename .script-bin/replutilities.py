@@ -194,6 +194,7 @@ ismergeable = lambda thing: bool(hasattr(thing, 'get') and isiterable(thing))
 
 always = lambda thing: True
 never = lambda thing: False
+nuhuh = lambda thing: None
 
 no_op = lambda thing, atx, default=None: atx or default
 or_none = lambda thing, atx: getattr(thing, atx, None)
@@ -251,9 +252,14 @@ clademap = {
                                         isclass(type(thing))
 }
 
-SINGLETONS = (type(None), bool, type(Ellipsis), type(NotImplemented))
+NoneType = type(None)
+EllipsisType = type(Ellipsis)
+NotImplementedType = type(NotImplemented)
+
+SINGLETON_TYPES = (bool, NoneType, EllipsisType, NotImplementedType)
 
 def predicates_for_types(*types):
+    """ For a list of types, return a list of “isinstance” predicates """
     predicates = []
     for classtype in frozenset(types):
         predicates.append(lambda thing: isinstance(thing, classtype))
@@ -266,7 +272,7 @@ class Clade(Enum):
     
     CLASS       = (isclass, never)
     METACLASS   = (ismetaclass, never)
-    SINGLETON   = (SINGLETONS,                      clademap['singleton'], never)
+    SINGLETON   = (SINGLETON_TYPES,                 clademap['singleton'], never)
     NUMBER      = ((int, long, float, complex),     clademap['number'], never)
     SET         = ((set, frozenset),                clademap['set'], never)
     STRING      = ((str, unicode),                  clademap['string'], never)
@@ -330,6 +336,8 @@ class NoDefault(object):
     def __new__(cls, *a, **k):
         return cls
 
+case_sort = lambda c: c.lower() if c.isupper() else c.upper()
+
 class Exporter(MutableMapping):
     
     """ A class representing a list of things for a module to export. """
@@ -356,14 +364,10 @@ class Exporter(MutableMapping):
     }
     
     def classify(self, thing, named):
-        """ Attempt to classify a thing by clade. Returns a member of the Clade enum. """
-        try:
-            clade = Clade.of(thing, name_hint=named)
-        except ValueError:
-            # no clade found
-            typename = determine_name(type(thing))
-            warnings.warn(type(self).messages['xclade'] % (named, typename),
-                          ExportWarning, stacklevel=2)
+        """ Attempt to classify a thing to a clade.
+            Returns a member of the Clade enum.
+        """
+        clade = Clade.of(thing, name_hint=named)
         if DEBUG:
             print("••• \tthing: %s" % str(thing))
             print("••• \tnamed: %s" % str(named))
@@ -371,12 +375,12 @@ class Exporter(MutableMapping):
             print()
         return clade
     
-    def increment(self, thing, named, increment=1):
+    def increment_for_clade(self, thing, named, increment=1):
         clade = self.classify(thing, named=named)
         self.__clades__[clade] += int(increment)
         return clade
     
-    def decrement(self, thing, named, decrement=-1):
+    def decrement_for_clade(self, thing, named, decrement=-1):
         clade = self.classify(thing, named=named)
         self.__clades__[clade] += int(decrement)
         return clade
@@ -396,7 +400,7 @@ class Exporter(MutableMapping):
     
     def pop(self, key, default=NoDefault):
         if key in self.__exports__:
-            self.decrement(self[key], named=key)
+            self.decrement_for_clade(self[key], named=key)
         if default is NoDefault:
             return self.__exports__.pop(key)
         return self.__exports__.pop(key, default)
@@ -441,8 +445,14 @@ class Exporter(MutableMapping):
         if thing is self:
             raise ExportError("can’t export an exporter instance directly")
         
-        # Attempt to classify the item by clade:
-        self.increment(thing, named=named)
+        # Attempt to classify the item to a clade:
+        try:
+            self.increment_for_clade(thing, named=named)
+        except ValueError:
+            # no clade found
+            typename = determine_name(type(thing))
+            warnings.warn(type(self).messages['xclade'] % (named, typename),
+                          ExportWarning, stacklevel=2)
         
         # At this point, “named” is valid -- if we were passed
         # a lambda, try to rename it with either our valid name,
@@ -537,20 +547,20 @@ class Exporter(MutableMapping):
             N.B. This function is a fucking illegible mess at the moment
         """
         from pprint import pformat
-        case_sort = lambda c: c.lower() if c.isupper() else c.upper()
         exports = self.exports()
         keys = sorted(exports.keys(), key=case_sort, reverse=True)
         vals = (getitem(exports, key) for key in keys)
         print_separator()
         print("≠≠≠ EXPORTS: (length = %i)" % len(keys))
         print()
-        # pprint(OrderedDict(zip(keys, vals)), width=SEPARATOR_WIDTH)
         od = OrderedDict.fromkeys(keys)
         od.update(zip(keys, vals))
-        # pprint(od, width=SEPARATOR_WIDTH, compact=True)
-        for idx, (key, value) in enumerate(od.items()):
+        for idx, (key, value) in enumerate(reversed(od.items())):
             prelude = "%03d → [ %24s ] →" % (idx, key)
-            print(prelude, " %s" % re.subn(r'\n', '\n' + " " * (len(prelude) + 2), pformat(value, width=SEPARATOR_WIDTH, compact=True), flags=re.MULTILINE)[0])
+            print(prelude, " %s" % re.subn(r'\n', '\n' + " " * (len(prelude) + 2),
+                                                                pformat(value,
+                                                                        width=SEPARATOR_WIDTH,
+                                                                        compact=True), flags=re.MULTILINE)[0])
     
     def _print_clade_histogram(self):
         """ Print out a bar graph of the current clade histogram.
@@ -597,7 +607,6 @@ class Exporter(MutableMapping):
             print("≠≠≠ %i leaf clades:" % len(leafclades))
             print("≠≠≠ %s" % ", ".join(sorted(clade.to_string() for clade in leafclades)))
             print()
-        
     
     def _print_cache_info(self):
         """ Print out the “CacheInfo” namedtuple from the search-by-ID
@@ -646,12 +655,12 @@ class Exporter(MutableMapping):
     
     def __setitem__(self, key, value):
         if key in self.__exports__:
-            self.decrement(self[key], named=key)
-        self.increment(value, named=key)
+            self.decrement_for_clade(self[key], named=key)
+        self.increment_for_clade(value, named=key)
         self.__exports__[key] = value
     
     def __delitem__(self, key):
-        self.decrement(self[key], named=key)
+        self.decrement_for_clade(self[key], named=key)
         del self.__exports__[key]
     
     def __bool__(self):
@@ -874,7 +883,7 @@ class SimpleNamespace(object):
     def __repr__(self):
         items = ("{}={!r}".format(key, self.__dict__[key]) for key in sorted(self))
         return "{}({}) @ {}".format(determine_name(type(self)),
-                          ",\n\t\t".join(items),     id(self))
+                          ",\n".join(items),         id(self))
     
     def __eq__(self, other):
         return self.__dict__ == asdict(other)
@@ -896,6 +905,8 @@ class Namespace(SimpleNamespace, MutableMapping):
     """
     __slots__ = tuple()
     
+    winnower = re.compile(r"\{(?:\s+)(?P<stuff>.+)")
+    
     def get(self, key, default=NoDefault):
         """ Return the value for key if key is in the dictionary, else default. """
         if default is NoDefault:
@@ -910,10 +921,10 @@ class Namespace(SimpleNamespace, MutableMapping):
     def __repr__(self):
         from pprint import pformat
         return "{}({}) @ {}".format(determine_name(type(self)),
-                            pformat(self.__dict__,
-                                    indent=16,
-                                    width=SEPARATOR_WIDTH),
-                                    id(self))
+                                    self.winnower.sub('{\g<stuff>',
+                                              pformat(self.__dict__,
+                                                      width=SEPARATOR_WIDTH)),
+                                                      id(self))
     
     def __len__(self):
         return len(self.__dict__)
@@ -1261,6 +1272,7 @@ sanitize.sanitizers = (
 # THE MODULE EXPORTS:
 export(print_separator, name='print_separator', doc="print_separator() → prints a line of dashes as wide as it believes the terminal width to be")
 export(doctrim)
+export(case_sort)
 
 export(ispyname,        name='ispyname',        doc="ispyname(string) → boolean predicate, True if string looks like a __special__ (née “dunder”) python attribute")
 export(pytuple,         name='pytuple',         doc="pytuple(*attrs) → turns ('do', 're', 'mi') into ('__do__', '__re__', '__mi__')")
@@ -1287,6 +1299,9 @@ export(Clade)
 export(clademap,        name='clademap')
 export(sysmods,         name='sysmods',         doc="sysmods() → shortcut for reversed(tuple(frozenset(sys.modules.values()))) …OK? I know. It’s not my finest work, but it works.")
 
+export(always,          name='always',          doc="always(thing) → boolean predicate that always returns True")
+export(never,           name='never',           doc="never(thing) → boolean predicate that always returns False")
+export(nuhuh,           name='nuhuh',           doc="nuhuh(thing) → boolean predicate that always returns None")
 export(no_op,           name='no_op',           doc="no_op(thing, attribute[, default]) → shortcut for (attribute or default)")
 export(or_none,         name='or_none',         doc="or_none(thing, attribute) → shortcut for getattr(thing, attribute, None)")
 export(getpyattr,       name='getpyattr',       doc="getpyattr(thing, attribute[, default]) → shortcut for getattr(thing, '__%s__' % attribute[, default])")
@@ -1316,6 +1331,7 @@ export(MAXINT,          name='MAXINT')
 export(PYPY,            name='PYPY')
 export(QUALIFIER,       name='QUALIFIER')
 export(SEPARATOR_WIDTH, name='SEPARATOR_WIDTH')
+export(SINGLETON_TYPES, name='SINGLETON_TYPES')
 export(TEXTMATE,        name='TEXTMATE')
 export(VERBOTEN,        name='VERBOTEN')
 export(current_umask,   name='current_umask')
@@ -1588,7 +1604,6 @@ def test_determine_module():
     import pickle
     mismatches = 0
     print_separator()
-    # print()
     for name, thing in exporter.exports().items():
         clade = Clade.of(thing, name_hint=name)
         determination = determine_module(thing)
