@@ -55,6 +55,7 @@ siegfried/
 !.gitattributes.global
 !.gitignore
 !.gitignore.global
+!.hyper.js
 !.iterm2_shell_integration.bash
 !.lldbinit
 !.npmrc
