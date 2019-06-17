@@ -39,6 +39,7 @@ siegfried/
 !.iterm2/**
 !.jupyter/**
 !.keras/**
+!.kitty/**/*.conf
 !.matplotlib/**
 !.pineapple/**
 !.ptpython/**
