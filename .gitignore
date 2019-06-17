@@ -77,10 +77,12 @@ siegfried/
 .bpythonhist.py2
 .bpythonhist.py3
 .cling_history
+.lesshst
 .node_repl_history
 .python_history
 .pythonhist
 .sqlite_history
+.wget-hsts
 
 .lnav/
 .vscode/
