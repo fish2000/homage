@@ -319,6 +319,10 @@ else:
 __dir__ = lambda: list(__all__)
 modules = tuple(__dir__())
 
+# Winnow the `sys.path` list using `site.removeduppaths()`:
+import site
+site.removeduppaths()
+
 # Print python banner before end-of-module --
 # if running in TextMate, we use `sys.stderr` instead of ANSI colors,
 # as that’s the only way to get any sort of colored output in TextMate’s
