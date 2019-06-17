@@ -1,0 +1,3 @@
+:verbose: true
+install: --no-document
+update: --no-document
