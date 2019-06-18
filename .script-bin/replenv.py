@@ -161,7 +161,7 @@ banners['pypy2.7'] = """
 from PIL import Image
 from pprint import pprint, pformat
 import sys, os, re
-import appdirs
+import appdirectories
 import argparse
 import collections
 import colorama
@@ -209,7 +209,7 @@ def print_warning(text, color=colorama.Fore.RED,
 __all__ = ('Image',
            'pprint', 'pformat',
            'sys', 'os', 're',
-           'appdirs',
+           'appdirectories',
            'argparse',
            'collections',
            'colorama',

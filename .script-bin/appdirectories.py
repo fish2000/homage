@@ -16,7 +16,6 @@ See <https://github.com/ActiveState/appdirs> for details and usage.
 __version__ = "1.4.4"
 __version_info__ = tuple(int(segment) for segment in __version__.split("."))
 
-
 import sys
 import os
 
@@ -27,7 +26,7 @@ if PY3:
 
 class AppDirs(object):
     
-    """Convenience wrapper for getting application dirs."""
+    """ Convenience wrapper for getting application dirs. """
     
     def __init__(self, appname=None,
                        appauthor=None,
@@ -118,7 +117,7 @@ class AppDirs(object):
                                                    version=self.version)
     
     def _get_win_folder(self, argument):
-        return getattr(self, '_win_folder_function', lambda: None)(argument)
+        return getattr(self, '_win_folder_function', lambda arg: None)(argument)
     
     def get_user_data_dir(self, appname=None,
                                 appauthor=None,

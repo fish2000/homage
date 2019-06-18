@@ -5,7 +5,7 @@ import plistlib
 import sys, os
 import zict
 
-import appdirs
+import appdirectories as appdirs
 from replutilities import attr, isstring, isbytes
 from replutilities import Exporter
 
