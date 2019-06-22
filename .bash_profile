@@ -63,10 +63,18 @@ bashconfig="${homedir}/.bash_config.d"
 cachedir="${homedir}/.cache"
 configdir="${homedir}/.config"
 scriptbin="${homedir}/.script-bin"
+statedir="${homedir}/.local/state"
 nodemodules="${cachedir}/npm/lib/node_modules"
 
 localbin="/usr/local/bin"
+locallib="/usr/local/lib"
 localopt="/usr/local/opt"
+
+export EDITOR="${localbin}/emacs"
+export PGDATA="/usr/local/var/postgres/ost2"
+export XML_CATALOG_FILES="/usr/local/etc/xml/catalog"
+export JAVA_HOME=`/usr/libexec/java_home`
+export CLICOLOR_FORCE=1 # q.v. `man tree`
 
 # the path of the righteous man is beset on all sides by evil
 MINIMAL_PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/X11/bin"
@@ -74,8 +82,9 @@ export ORIGINAL_PATH="${PATH}"
 export PATH="\
 ${localopt}/python/libexec/bin:\
 ${localopt}/ruby/bin:\
-${homedir}/.gem/ruby/2.3.0/bin:\
+${locallib}/ruby/gems/2.6.0/bin:\
 ${localopt}/go/bin:\
+${JAVA_HOME}/bin:\
 ${scriptbin}:\
 ${localbin}:\
 /usr/local/sbin:\
@@ -94,15 +103,9 @@ ${GOPATH}"
 
 export PKG_CONFIG_PATH="\
 ${localopt}/python/lib/pkgconfig:\
-/usr/local/lib/pkgconfig:\
+${locallib}/pkgconfig:\
 /opt/X11/lib/pkgconfig:\
 ${PKG_CONFIG_PATH}"
-
-export EDITOR="${localbin}/emacs"
-export PGDATA="/usr/local/var/postgres/ost2"
-export XML_CATALOG_FILES="/usr/local/etc/xml/catalog"
-export JAVA_HOME=`/usr/libexec/java_home`
-export CLICOLOR_FORCE=1 # q.v. `man tree`
 
 gls="${localbin}/gls --color=auto"
 
@@ -110,6 +113,8 @@ alias l="${gls} --ignore=\*.pyc -sF"
 alias ll="${gls} --ignore=\*.pyc -lshF"
 alias la="${gls} -asF"
 alias lla="${gls} -lashF"
+
+alias omode="/usr/bin/stat -f '%04A →'"
 
 alias uman="/usr/bin/man"
 alias man="${localbin}/gman"
@@ -136,7 +141,6 @@ alias emacs="${localbin}/emacs --no-window-system"
 alias siri="say -v Samantha"
 
 function fig () {
-    # text="${1:?Text string expected}"
     # -f colossal: use the “colossal” figlet typeface
     # -k: do “kerning” – don’t crash letterforms into one another
     # -w `tput cols`: use the given terminal’s column width
@@ -172,14 +176,38 @@ site.removeduppaths();\
 print(\":\".join(sys.path).strip(\":\"))\
 '"
 
+alias echosys="python -c '\
+from __future__ import print_function;import sys, site;\
+site.removeduppaths();\
+print(\":\".join(sys.path).strip(\":\"))\
+' | /usr/bin/sed -E 'y/:/\n/'"
+
 export BASE_PYTHONPATH="$(syspath)"
+
+# XDG environment variables:
+export XDG_DATA_HOME="${homedir}/Library/Application\ Support"
+export XDG_DATA_DIRS="\
+${XDG_DATA_HOME}:\
+/Library/Application\ Support:\
+/usr/local/share:\
+/usr/share:\
+/usr/X11/share"
+
+export XDG_CONFIG_HOME="${configdir}"
+export XDG_CONFIG_DIRS="\
+${homedir}/Library/Preferences:\
+/Library/Preferences:\
+/usr/local/etc/xdg"
+
+export XDG_CACHE_HOME="${cachedir}"
+export XDG_STATE_HOME="${statedir}"
 
 # Include private Bash stuff:
 bash_private=${bashconfig}/private.bash
 if [[ -f $bash_private ]]; then
     source $bash_private
 else
-    echo "Missing bash support file: ${bash_private}"
+    echo "- [ERROR] Missing bash support file: ${bash_private}"
 fi
 
 # Include URL downloading and filesystem caching Bash funcs:
@@ -190,17 +218,69 @@ if ([[ -f $url_dload ]] && [[ -f $url_cache ]]); then
     source $url_dload
     source $url_cache
 else
-    echo "Missing bash support:"
+    echo "- [ERROR] Missing bash support:"
     echo "* ${url_dload}"
     echo "* ${url_cache}"
 fi
+
+function push () {
+    # Usage:
+    # $ push dir0 dir1 dir2     <------ successivley applies “pushd”
+    #                                   to each argument
+    argcount=$#
+    if [[ $argcount -lt 1 ]]; then
+        echo "- [ERROR] no directories supplied to “push”"
+        return 1
+    fi
+    for argument in "$@"; do
+        if [[ ! -d $argument ]]; then
+            echo "» pushd ${argument}: not a valid directory"
+        else
+            pushd $argument
+        fi
+    done
+}
+
+function within () {
+    # Usage:
+    # $ within dir ls -la       <------ execute “ls -la” within directory “dir”,
+    #                                   then switches back to the commands’
+    #                                   originating directory
+    dst="${1:?- [ERROR] Target directory expected}"
+    shift # restore all arguments to $@
+    argcount=$#
+    if [[ ! -d $dst ]]; then
+        echo "- [ERROR] Bad target directory: ${dst}"
+        return 1
+    fi
+    if [[ $argcount -lt 1 ]]; then
+        echo "- [ERROR] no command supplied to “within”"
+        return 1
+    fi
+    pushd $dst && \
+        eval $@ && \
+        popd
+}
+
+function load_repl () {
+    # See also “use_repl()” – q.v. ~/.config/direnv/direnvrc supra.
+    local repl="${1:-bpython}"
+    local conf="$(which repl-${repl}.bash)"
+    if [[ -x $conf ]]; then
+        echo "» Loading: ${conf}"
+        source "${conf}"
+    else
+        echo "» [ERROR] Couldn’t load configuration for repl: ${repl}"
+        return 1
+    fi
+}
 
 function archive () {
     # Usage:
     # $ archive /tmp/yodogg ~/Dropbox/YoDogg    <-- Archives ~/Dropbox/YoDogg to
     #                                                         /tmp/yodogg.dmg
-    dst="${1:?Archive name expected}"
-    pth="${2:?Source directory expected}"
+    dst="${1:?- [ERROR] Archive name expected}"
+    pth="${2:?- [ERROR] Source directory expected}"
     volname="$(basename ${dst^^} | /usr/bin/sed -e s/[^A-Za-z0-9]/-/g)"
     hdiutil create -srcfolder $pth \
         -volname $volname \
@@ -219,7 +299,7 @@ function echopath () {
     
     # Check for the variable named in the argument, if any:
     if [[ ! ${!pathvar} ]]; then
-        echo "- Path variable ${pathvar} is unknown"
+        echo "- [ERROR] Path variable ${pathvar} is unknown"
         return 1
     fi
     
@@ -245,7 +325,7 @@ function checkpath () {
     
     # Check for the named path variable (if any):
     if [[ ! ${!pathvar} ]]; then
-        echo "- Path variable “${pathvar}” is unknown"
+        echo "- [ERROR] Path variable “${pathvar}” is unknown"
         return 1
     fi
     
@@ -255,7 +335,7 @@ function checkpath () {
     # Confirm that at least one path element is present:
     pathcount=${#pathparts[@]}
     if [[ $pathcount -lt 1 ]]; then
-        echo "- Path variable “${pathvar}” contains no path elements"
+        echo "- [ERROR] Path variable “${pathvar}” contains no path elements"
         return 1
     fi
     
@@ -274,19 +354,19 @@ function extendpath () {
     # Usage:
     # $ extendpath /yo/dogg/bin
     # $ extendpath /yo/dogg/python-modules PYTHONPATH
-    newpath="${1:?New path segment expected}"
+    newpath="${1:?- [ERROR] New path segment expected}"
     pathvar="${2:-PATH}"
     verbose="${3:-1}"
     
     # Check the existence of the new path:
     if [[ ! -d $newpath ]]; then
-        echo "- Directory does not exist: ${newpath}"
+        echo "- [ERROR] Directory does not exist: ${newpath}"
         return 1
     fi
     
     # Check for the named path variable, if any:
     if [[ ! ${!pathvar} ]]; then
-        echo "- Path variable is unknown: “${pathvar}”"
+        echo "- [ERROR] Path variable is unknown: “${pathvar}”"
         return 1
     fi
     
@@ -330,9 +410,9 @@ function python_module_run () {
     # N.B.: Users will generally not execute `python_module_run` themselves;
     #   see below for examples of functions that set up arguments to a specific
     #  `python_module_run` command and then execute that.
-    executable="${1:?Python interpreter expected}"
-    modulename="${2:?Python module name expected}"
-    configflag="${3:?REPL configuration expected}"
+    executable="${1:?- [ERROR] Python interpreter expected}"
+    modulename="${2:?- [ERROR] Python module name expected}"
+    configflag="${3:?- [ERROR] REPL configuration expected}"
     replenv="${scriptbin}/repl-${modulename,,}.py"
     shift 3 # restore the original $@ argument-set
     if [[ ! -e $executable ]]; then
@@ -443,7 +523,7 @@ function repy () {
         echo "[repy] Reinstalling ${1}…"
         pip install --upgrade --ignore-installed "${1}"
     else
-        echo "[repy] No package specified for reinstallation"
+        echo "- [ERROR][repy] No package specified for reinstallation"
     fi
 }
 
@@ -476,7 +556,7 @@ function yo () {
 
 function yoyo () {
     
-    upth="${1:?» File path or command name expected}"
+    upth="${1:?» [ERROR] File path or command name expected}"
     
     if [[ ! -e "${upth}" ]]; then
         # argument is not an existant path,
@@ -499,6 +579,7 @@ function yoyo () {
         
         if [[ ! -d "${pth}" ]]; then
             echo ""
+            # echo "$(omode ${pth}) $(ll ${pth})"
             ll "${pth}"
         fi
         
@@ -517,6 +598,8 @@ function yoyo () {
         #                                        END { for (idx = 0; idx < siz; idx++) printf("%s\n", vec[idx]) }'
         
         echo ""
+        echo -n "» Mode: $(omode ${pth}) "
+        [[ -d "${pth}" ]] && echo "directory" || echo "file"
         if [[ ! -d "${pth}" ]]; then
             # echo "» file results for ${pth}"
             # echo ""
@@ -538,8 +621,8 @@ function yoyo () {
     
     else
         # could not find a useable file path based on input:
-        echo "» File path or command name expected"
-        echo "» Argument passed was “${upth}”"
+        echo "» [ERROR] File path or command name expected"
+        echo "» [ERROR] Argument passed was “${upth}”"
     
     fi
     
@@ -548,7 +631,7 @@ function yoyo () {
 }
 
 function see () {
-    upth="${1:?» File path or command name expected}"
+    upth="${1:?- [ERROR] File path or command name expected}"
     
     if [[ ! -e "${upth}" ]]; then
         # argument is not an existant path,
@@ -599,7 +682,7 @@ function anybar () {
         echo "» Setting AnyBar at port ${port} to ${1}…"
         echo -n "${1}" | /usr/bin/nc -4u -w0 localhost "${port}"
     else
-        echo "- No color provided for AnyBar"
+        echo "- [ERROR] No color provided for AnyBar"
     fi
 }
 
@@ -613,7 +696,7 @@ bash_prompt=${bashconfig}/bash_prompt.sh
 if [[ -f $bash_prompt ]]; then
     source $bash_prompt
 else
-    echo "Missing git support file: ${bash_prompt}"
+    echo "- [ERROR] Missing git support file: ${bash_prompt}"
 fi
 
 # COMPLETION.
@@ -621,7 +704,7 @@ git_completion=${bashconfig}/git_completion.sh
 if [[ -f $git_completion ]]; then
     source $git_completion
 else
-    echo "Missing git support file: ${git_completion}"
+    echo "- [ERROR] Missing git support file: ${git_completion}"
 fi
 
 # HOMEBREW.
@@ -631,6 +714,14 @@ export HOMEBREW_NO_ANALYTICS=1
 export HOMEBREW_EDITOR="${localbin}/mate"
 export HOMEBREW_CURL="${localbin}/curl"
 export HOMEBREW_GIT="${localbin}/git"
+
+# HOMEBREW: output from `brew shellenv`
+export HOMEBREW_PREFIX="/usr/local"
+export HOMEBREW_CELLAR="/usr/local/Cellar"
+export HOMEBREW_REPOSITORY="/usr/local/Homebrew"
+# export PATH="/usr/local/bin:/usr/local/sbin:$PATH"
+# export MANPATH="/usr/local/share/man:$MANPATH"
+# export INFOPATH="/usr/local/share/info:$INFOPATH"
 
 # Without this next command, postgres makes things freak out:
 ulimit -n 4096
@@ -645,7 +736,7 @@ homebrew_completion="$(brew --prefix)/etc/bash_completion"
 if [[ -f $homebrew_completion ]]; then
     source $homebrew_completion
 else
-    echo "Missing Homebrew support file: ${homebrew_completion}"
+    echo "- [ERROR] Missing Homebrew support file: ${homebrew_completion}"
 fi
 
 # q.v. https://help.github.com/articles/telling-git-about-your-gpg-key/

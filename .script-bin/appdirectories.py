@@ -32,13 +32,14 @@ class AppDirs(object):
                        appauthor=None,
                        version=None,
                        roaming=False,
-                       multipath=False):
+                       multipath=False,
+                       system=None):
         self.appname = appname
         self.appauthor = appauthor
         self.version = version
         self.roaming = roaming
         self.multipath = multipath
-        self.system = self.determine_system()
+        self.system = system or self.determine_system()
         if self.system == "win32":
             self._win_folder_function = self.determine_win_folder_function()
 

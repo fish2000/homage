@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-realpath() {
+function realpath () {
     [[ $1 = /* ]] && echo "$1" || echo "$PWD/${1#./}"
 }
 
-layout_python-venv() {
+function layout_python-venv () {
     local python=${1:-python3}
     [[ $# -gt 0 ]] && shift
     unset PYTHONHOME
@@ -25,4 +25,68 @@ layout_python-venv() {
         "$python" -m venv "$VIRTUAL_ENV"
     fi
     PATH_add "$VIRTUAL_ENV/bin"
+}
+
+function use_pyenv () {
+    local python_version=$1
+    local pyenv_python=$(pyenv root)/versions/${python_version}/bin/python
+    
+    if [[ ! -x "$pyenv_python" ]]; then
+        log_error "Error: $pyenv_python can't be executed."
+        return 1
+      fi
+      
+      unset PYTHONHOME
+      local ve=$($pyenv_python -c "import pkgutil; print('venv' if pkgutil.find_loader('venv') else ('virtualenv' if pkgutil.find_loader('virtualenv') else ''))")
+      
+      case $ve in
+        "venv")
+            VIRTUAL_ENV=$(direnv_layout_dir)/python-$python_version
+            export VIRTUAL_ENV
+            if [[ ! -d $VIRTUAL_ENV ]]; then
+                $($pyenv_python -m venv "$VIRTUAL_ENV")
+            fi
+            PATH_add "$VIRTUAL_ENV/bin"
+            ;;
+        "virtualenv")
+            layout python "$pyenv_python"
+            ;;
+        *)
+            log_error "Error: neither venv nor virtualenv are available."
+            return 1
+            ;;
+        esac
+    
+    export PYENV_VERSION=$python_version
+}
+
+# use a certain pyenv version
+function use_python () {
+    if [ -n "$(which pyenv)" ]; then
+        local pyversion=$1
+        pyenv local ${pyversion}
+    fi
+}
+
+function layout_virtualenv () {
+    local pyversion=$1
+    local pvenv=$2
+    if [ -n "$(which pyenv virtualenv)" ]; then
+        pyenv virtualenv --force --quiet ${pyversion} ${pvenv}-${pyversion}
+    fi
+    pyenv local --unset
+}
+
+function layout_activate () {
+    if [ -n "$(which pyenv)" ]; then
+        source $(pyenv root)/versions/$1/bin/activate
+    fi
+}
+
+function use_repl () {
+    local repl="${1:-bpython}"
+    local conf="$(which repl-${repl}.bash)"
+    if [[ -x $conf ]]; then
+        source "${conf}"
+    fi
 }
