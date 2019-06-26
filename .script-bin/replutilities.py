@@ -222,9 +222,9 @@ thing_has = lambda thing, atx: atx in (pyattr(thing, 'dict', 'slots') or tuple()
 class_has = lambda cls, atx: isclasstype(cls) and thing_has(cls, atx)
 
 # Is this a class based on a `__dict__`, or one using `__slots__`?
-isslotted = lambda thing: allpyattrs('mro', 'slots')
-isdictish = lambda thing: allpyattrs('mro', 'dict')
-isslotdicty = lambda thing: allpyattrs('mro', 'slots', 'dict')
+isslotted = lambda thing: allpyattrs(thing, 'mro', 'slots')
+isdictish = lambda thing: allpyattrs(thing, 'mro', 'dict')
+isslotdicty = lambda thing: allpyattrs(thing, 'mro', 'slots', 'dict')
 
 clademap = {
     'class'         : isclass,
