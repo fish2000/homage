@@ -136,6 +136,8 @@ alias mateme="mate ${homedir}/.bash_profile"
 # alias sufs="${JANGY_PROJECT}/utils/getfilesuffixes.py"
 # alias gitwhat="git branch && git status"
 
+alias max="brightness -v 1"
+alias min="brightness -v 0.5"
 alias lipsum="lorem -n 100 | pbcopy"
 alias emacs="${localbin}/emacs --no-window-system"
 alias siri="say -v Samantha"
