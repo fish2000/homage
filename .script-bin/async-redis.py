@@ -143,12 +143,17 @@ class RedisConf(object):
         return self.assemble()
 
 def redis_server(*args):
+    """ Invoke the “redis-server” CLI tool as an asynchronous
+        subprocess, redirect all output to ‘/dev/null’, and
+        return the subprocess handle instance
+    """
     return asyncio.create_subprocess_exec(
         which('redis-server'), *args,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL)
 
 async def run_redis(*args):
+    """ Coroutine wrapping the execution of the Redis server """
     logging.debug("[daemon] Starting Redis…")
     daemon = await redis_server(*args)
     
@@ -173,6 +178,7 @@ async def run_redis(*args):
 class RedRun(object):
     
     def __init__(self, confpath):
+        """ Initialize a RedRun manager with a given configuration file """
         path = os.fspath(confpath)
         if not os.path.exists(path):
             raise ValueError("bad Redis configuration file path")
@@ -181,7 +187,14 @@ class RedRun(object):
         if DEBUG:
             self.loop.set_debug(DEBUG)
     
+    def solve_problems(self, loop, context):
+        """ Custom exception handler – invoked when in DEBUG mode """
+        message = context.get('message')
+        logging.warning(f"[redrun] ERROR: {message}")
+        loop.call_exception_handler(context)
+    
     def run(self):
+        """ Call “RedRun.run()” within the managed context to run Redis """
         self.loop.run_until_complete(self.task)
     
     def __enter__(self):
@@ -189,6 +202,8 @@ class RedRun(object):
                                 run_redis(self.path))
         self.loop.add_signal_handler(signal.SIGINT,  self.task.cancel)
         self.loop.add_signal_handler(signal.SIGTERM, self.task.cancel)
+        if DEBUG:
+            self.loop.set_exception_handler(self.solve_problems)
         return self
     
     def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
