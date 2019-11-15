@@ -32,12 +32,6 @@ RUNNING REDIS:
     
 '''
 
-# logging.getLogger("asyncio").setLevel(DEBUG and logging.DEBUG or logging.WARNING)
-# logg = logging.getLogger("clu.rack.redis")
-# logg.setLevel(logging.WARNING)
-# loggout = logging.StreamHandler()
-# loggout.setLevel(DEBUG and logging.DEBUG or logging.ERROR)
-# logg.addHandler(loggout)
 logging.basicConfig(level=logging.DEBUG,
                     format='%(relativeCreated)6d %(threadName)s %(message)s')
 
@@ -218,24 +212,6 @@ def test_redis_conf():
         pprint(redisconf.config)
         print('*' * 100)
         
-        # ctx = contextvars.copy_context()
-        # ctx.run(main, redisconf.file.name)
-        # pid = ctx[PID]
-        # print("[runctx] PID = {pid}")
-        # if pid > 0:
-        #     print("[runctx] Sending interrupt to pid #{pid}…")
-        #     os.kill(pid, signal.SIGINT)
-        
-        # with warnings.catch_warnings():
-        #     warnings.simplefilter("ignore")
-        #     try:
-        #         task = asyncio.run(run_redis(redisconf.file.name))
-        #     except KeyboardInterrupt:
-        #         print()
-        #         print("[runctx] Shutting down…")
-        # task = asyncio.run(run_redis(redisconf.file.name))
-        
-        # task = asyncio.create_task(run_redis(redisconf.file.name))
         task = loop.create_task(run_redis(redisconf.file.name))
         loop.add_signal_handler(signal.SIGINT,  task.cancel)
         loop.add_signal_handler(signal.SIGTERM, task.cancel)
