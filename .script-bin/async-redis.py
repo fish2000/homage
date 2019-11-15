@@ -4,11 +4,13 @@ from __future__ import print_function
 from pprint import pprint
 
 import asyncio
+import concurrent.futures
 import contextvars
 import logging
 import multidict
 import os
 import signal
+import subprocess
 
 from clu.constants.consts import DEBUG
 from clu.fs.filesystem import (which,
@@ -142,25 +144,57 @@ class RedisConf(object):
     def __str__(self):
         return self.assemble()
 
-def redis_server(*args):
+def redis_server_args(*args):
+    return (which('redis-server'), *args)
+
+def redis_server_popen(*args):
+    return subprocess.Popen(*args,
+       bufsize=-1,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+         shell=False)
+
+def redis_server_async(*args):
     """ Invoke the “redis-server” CLI tool as an asynchronous
         subprocess, redirect all output to ‘/dev/null’, and
         return the subprocess handle instance
     """
-    return asyncio.create_subprocess_exec(
-        which('redis-server'), *args,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL)
+    return asyncio.create_subprocess_exec(*args,
+           stdout=asyncio.subprocess.DEVNULL,
+           stderr=asyncio.subprocess.DEVNULL)
 
-async def run_redis(*args):
+def run_redis_popen(*args):
+    """ Synchronous function wrapping the execution of the Redis server """
+    logging.debug("[process] Starting Redis…")
+    process = redis_server_popen(*args)
+    
+    logging.debug(f"[process] PID = {process.pid}")
+    PID.set(process.pid)
+    
+    logging.debug("[process] Running Redis subprocess…")
+    try:
+        process.wait()
+    except KeyboardInterrupt:
+        logging.debug("")
+        logging.debug("[process] Terminating process…")
+        process.terminate()
+    
+    if process.returncode is None:
+        logging.debug("[process] Killing process…")
+        process.kill()
+    
+    logging.debug(f"[process] RETVAL = {process.returncode}")
+    return process
+
+async def run_redis_async(*args):
     """ Coroutine wrapping the execution of the Redis server """
     logging.debug("[daemon] Starting Redis…")
-    daemon = await redis_server(*args)
+    daemon = await redis_server_async(*args)
     
     logging.debug(f"[daemon] PID = {daemon.pid}")
     PID.set(daemon.pid)
     
-    logging.debug("[daemon] Running Redis subprocess…")
+    logging.debug("[daemon] Running Redis daemon…")
     try:
         await daemon.wait()
     except asyncio.CancelledError:
@@ -195,13 +229,27 @@ class RedRun(object):
     
     def run(self):
         """ Call “RedRun.run()” within the managed context to run Redis """
-        self.loop.run_until_complete(self.task)
-    
-    def __enter__(self):
-        self.task = self.loop.create_task(
-                                run_redis(self.path))
+        self.process = run_redis_async(*self.args)
+        self.task = self.loop.create_task(self.process)
         self.loop.add_signal_handler(signal.SIGINT,  self.task.cancel)
         self.loop.add_signal_handler(signal.SIGTERM, self.task.cancel)
+        self.loop.run_until_complete(self.task)
+    
+    async def execute_popen(self):
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            self.future = await self.loop.run_in_executor(executor,
+                                                          run_redis_popen,
+                                                         *self.args)
+            self.loop.add_signal_handler(signal.SIGINT,  self.future.cancel)
+            self.loop.add_signal_handler(signal.SIGTERM, self.future.cancel)
+            return await self.future
+    
+    def execute(self):
+        # return asyncio.run(self.execute_popen())
+        self.loop.run_until_complete(self.execute_popen())
+    
+    def __enter__(self):
+        self.args = redis_server_args(self.path)
         if DEBUG:
             self.loop.set_exception_handler(self.solve_problems)
         return self
@@ -227,7 +275,7 @@ def test_redis_conf():
         pprint(redisconf.config)
         print('*' * 100)
         
-        task = loop.create_task(run_redis(redisconf.file.name))
+        task = loop.create_task(run_redis_async(redisconf.file.name))
         loop.add_signal_handler(signal.SIGINT,  task.cancel)
         loop.add_signal_handler(signal.SIGTERM, task.cancel)
         
@@ -244,6 +292,28 @@ def test_redrun():
         with RedRun(settings.path) as redrunner:
             redrunner.run()
 
+def test_redrun_background_executor():
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        future = executor.submit(test_redrun)
+        print("YO DOGG")
+        try:
+            while True:
+                pass
+        except KeyboardInterrupt:
+            executor.shutdown()
+        try:
+            print(future.result)
+        except Exception as exc:
+            print(f"[exexec] ERROR: {exc}")
+
+def test_redrun_background():
+    
+    with RedisConf() as settings:
+        with RedRun(settings.path) as redrunner:
+            # asyncio.run(redrunner.execute())
+            redrunner.execute()
+
 if __name__ == '__main__':
     # test_redis_conf()
-    test_redrun()
+    # test_redrun()
+    test_redrun_background()
