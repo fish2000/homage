@@ -4,13 +4,14 @@ from __future__ import print_function
 from pprint import pprint
 
 import asyncio
-import concurrent.futures
+import concurrent.futures as concur
 import contextvars
 import logging
 import multidict
 import os
 import signal
 import subprocess
+import time
 
 from clu.constants.consts import DEBUG
 from clu.fs.filesystem import (which,
@@ -73,24 +74,27 @@ class RedisConf(object):
     def set(self, key, value):
         self.config[key] = self.decompose(value)
     
+    def get(self, key):
+        return ' '.join(self.config.get(key))
+    
     def set_port(self, port):
-        redisdir = self.get_dir()
+        rdir = self.get_dir()
         self.set('port',    str(port))
-        self.set('pidfile', redisdir.subpath(f"redis_{port}.pid"))
+        self.set('pidfile', rdir.subpath(f"redis_{port}.pid"))
     
     def get_port(self):
-        return int(' '.join(self.config.get('port')), base=10)
+        return int(self.get('port'), base=10)
     
     def set_dir(self, directory):
         self.set('dir', os.fspath(directory))
     
     def get_dir(self):
-        return Directory(' '.join(self.config.get('dir')))
+        return Directory(self.get('dir'))
     
     def getline(self, key):
         if key not in self.config:
             raise KeyError(key)
-        value = ' '.join(self.config.get(key))
+        value = self.get(key)
         return f"{key} {value}"
     
     def getlines(self, key):
@@ -148,7 +152,11 @@ def redis_server_args(*args):
     return (which('redis-server'), *args)
 
 def redis_server_popen(*args):
-    return subprocess.Popen(*args,
+    """ Invoke the “redis-server” CLI tool as a blocking
+        subprocess, redirect all output to ‘/dev/null’, and
+        return the subprocess handle instance
+    """
+    return subprocess.Popen(args,
        bufsize=-1,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -178,10 +186,12 @@ def run_redis_popen(*args):
         logging.debug("")
         logging.debug("[process] Terminating process…")
         process.terminate()
+        time.sleep(1)
     
     if process.returncode is None:
         logging.debug("[process] Killing process…")
         process.kill()
+        process.wait(timeout=2)
     
     logging.debug(f"[process] RETVAL = {process.returncode}")
     return process
@@ -201,10 +211,12 @@ async def run_redis_async(*args):
         logging.debug("")
         logging.debug("[daemon] Terminating process…")
         daemon.terminate()
+        await asyncio.sleep(1)
     
     if daemon.returncode is None:
         logging.debug("[daemon] Killing process…")
         daemon.kill()
+        await asyncio.sleep(1)
     
     logging.debug(f"[daemon] RETVAL = {daemon.returncode}")
     return daemon
@@ -220,6 +232,7 @@ class RedRun(object):
         self.path = path
         if DEBUG:
             self.loop.set_debug(DEBUG)
+        self.close_loop = True
     
     def solve_problems(self, loop, context):
         """ Custom exception handler – invoked when in DEBUG mode """
@@ -236,17 +249,28 @@ class RedRun(object):
         self.loop.run_until_complete(self.task)
     
     async def execute_popen(self):
-        with concurrent.futures.ProcessPoolExecutor() as executor:
+        self.close_loop = False
+        with concur.ProcessPoolExecutor(1) as executor:
             self.future = await self.loop.run_in_executor(executor,
                                                           run_redis_popen,
                                                          *self.args)
-            self.loop.add_signal_handler(signal.SIGINT,  self.future.cancel)
-            self.loop.add_signal_handler(signal.SIGTERM, self.future.cancel)
-            return await self.future
+        return concur.wait([self.future], return_when=concur.FIRST_EXCEPTION)
     
     def execute(self):
-        # return asyncio.run(self.execute_popen())
-        self.loop.run_until_complete(self.execute_popen())
+        # asyncio.run(self.execute_popen())
+        # self.loop.add_signal_handler(signal.SIGINT,  lambda: None)
+        # self.loop.add_signal_handler(signal.SIGTERM, lambda: None)
+        # self.loop.run_until_complete(self.execute_popen())
+        try:
+            self.loop.run_until_complete(self.execute_popen())
+        except KeyboardInterrupt:
+            pass
+        # except RuntimeError:
+        #     pass
+        # coro = await self.execute_popen()
+        # self.loop.add_signal_handler(signal.SIGINT,  self.future.cancel)
+        # self.loop.add_signal_handler(signal.SIGTERM, self.future.cancel)
+        # self.loop.run_until_complete(coro)
     
     def __enter__(self):
         self.args = redis_server_args(self.path)
@@ -255,12 +279,16 @@ class RedRun(object):
         return self
     
     def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
-        self.loop.close()
+        if self.close_loop:
+            if not self.loop.is_closed():
+                self.loop.close()
         return exc_type is None
 
 def test_redis_conf():
     
     loop = asyncio.get_event_loop()
+    if DEBUG:
+        loop.set_debug(DEBUG)
     
     with RedisConf() as redisconf:
         
@@ -275,7 +303,9 @@ def test_redis_conf():
         pprint(redisconf.config)
         print('*' * 100)
         
-        task = loop.create_task(run_redis_async(redisconf.file.name))
+        task = loop.create_task(run_redis_async(
+                               *redis_server_args(
+                                redisconf.file.name)))
         loop.add_signal_handler(signal.SIGINT,  task.cancel)
         loop.add_signal_handler(signal.SIGTERM, task.cancel)
         
@@ -293,7 +323,7 @@ def test_redrun():
             redrunner.run()
 
 def test_redrun_background_executor():
-    with concurrent.futures.ProcessPoolExecutor() as executor:
+    with concur.ProcessPoolExecutor() as executor:
         future = executor.submit(test_redrun)
         print("YO DOGG")
         try:
@@ -310,7 +340,6 @@ def test_redrun_background():
     
     with RedisConf() as settings:
         with RedRun(settings.path) as redrunner:
-            # asyncio.run(redrunner.execute())
             redrunner.execute()
 
 if __name__ == '__main__':
