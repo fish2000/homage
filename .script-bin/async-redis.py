@@ -228,10 +228,7 @@ class RedRun(object):
         path = os.fspath(confpath)
         if not os.path.exists(path):
             raise ValueError("bad Redis configuration file path")
-        self.loop = asyncio.get_event_loop()
         self.path = path
-        if DEBUG:
-            self.loop.set_debug(DEBUG)
         self.close_loop = True
     
     def solve_problems(self, loop, context):
@@ -273,9 +270,11 @@ class RedRun(object):
         # self.loop.run_until_complete(coro)
     
     def __enter__(self):
-        self.args = redis_server_args(self.path)
+        self.loop = asyncio.get_event_loop()
         if DEBUG:
+            self.loop.set_debug(DEBUG)
             self.loop.set_exception_handler(self.solve_problems)
+        self.args = redis_server_args(self.path)
         return self
     
     def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
