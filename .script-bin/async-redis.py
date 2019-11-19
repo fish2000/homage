@@ -14,6 +14,7 @@ import subprocess
 import time
 
 from clu.constants.consts import DEBUG
+from clu.predicates import uniquify
 from clu.fs.filesystem import (which,
                                TemporaryName,
                                TemporaryDirectory,
@@ -59,9 +60,9 @@ class RedisConf(object):
     def parse(self, source):
         with open(source, 'r') as handle:
             lines = filter(None,
-                    map(lambda line: line.strip(),
                     filter(lambda line: not line.startswith('#'),
-                           handle.readlines())))
+                    map(lambda line: line.strip(),
+                        handle.readlines())))
         for line in lines:
             parts = line.split(None, 1)
             self.config.add(parts[0],
@@ -108,7 +109,7 @@ class RedisConf(object):
     
     def assemble(self):
         lines = []
-        for key in self.config.keys():
+        for key in uniquify(self.config.keys()):
             lines.extend(self.getlines(key))
         return "\n".join(lines)
     
@@ -341,6 +342,6 @@ def test_redrun_background():
             redrunner.execute()
 
 if __name__ == '__main__':
-    # test_redis_conf()
+    test_redis_conf()
     # test_redrun()
-    test_redrun_background()
+    # test_redrun_background()
