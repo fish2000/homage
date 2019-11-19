@@ -9,6 +9,7 @@ import contextvars
 import logging
 import multidict
 import os
+import re
 import signal
 import subprocess
 import time
@@ -44,30 +45,33 @@ PID = contextvars.ContextVar('PID')
 class RedisConf(object):
     
     DEFAULT_SOURCE = '/usr/local/etc/redis.conf'
+    COMMENT_RE = re.compile("#+(?:[\s\S]*)$")
     
     @staticmethod
     def decompose(value):
         return tuple(value.split())
     
+    @classmethod
+    def decommentizer(cls):
+        return lambda line: cls.COMMENT_RE.sub('', line).rstrip()
+    
     def __init__(self, source=None, port=6379):
         self.config = multidict.MultiDict()
+        self.source = source or type(self).DEFAULT_SOURCE
         self.port = port
-        self.source = source
         self.active = False
-        self.parse(self.source \
-           or type(self).DEFAULT_SOURCE)
+        self.parse(self.source)
     
     def parse(self, source):
         with open(source, 'r') as handle:
-            lines = filter(None,
+            lines = map(self.decommentizer(),
+                    filter(None,
                     filter(lambda line: not line.startswith('#'),
                     map(lambda line: line.strip(),
-                        handle.readlines())))
+                        handle.readlines()))))
         for line in lines:
-            parts = line.split(None, 1)
-            self.config.add(parts[0],
-             self.decompose(parts[1]))
-        return self.config
+            key, value = line.split(None, 1)
+            self.add(key, value)
     
     def add(self, key, value):
         self.config.add(key, self.decompose(value))
@@ -93,13 +97,13 @@ class RedisConf(object):
         return Directory(self.get('dir'))
     
     def getline(self, key):
-        if key not in self.config:
+        if key not in self:
             raise KeyError(key)
         value = self.get(key)
         return f"{key} {value}"
     
     def getlines(self, key):
-        if key not in self.config:
+        if key not in self:
             raise KeyError(key)
         lines = []
         for value_parts in self.config.getall(key):
@@ -107,11 +111,14 @@ class RedisConf(object):
             lines.append(f"{key} {value}")
         return lines
     
-    def assemble(self):
+    def getall(self):
         lines = []
         for key in uniquify(self.config.keys()):
             lines.extend(self.getlines(key))
-        return "\n".join(lines)
+        return lines
+    
+    def assemble(self):
+        return "\n".join(self)
     
     @property
     def path(self):
@@ -131,7 +138,9 @@ class RedisConf(object):
         self.active = True
         return self
     
-    def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
+    def __exit__(self, exc_type=None,
+                       exc_val=None,
+                       exc_tb=None):
         if self.file:
             self.file.close()
             del self.file
@@ -141,9 +150,18 @@ class RedisConf(object):
         self.active = False
         return exc_type is None
     
+    def __len__(self):
+        return len(self.config)
+    
+    def __contains__(self, key):
+        return key in self.config
+    
+    def __iter__(self):
+        yield from self.getall()
+    
     def __repr__(self):
         instance_id = hex(id(self))
-        length = len(self.config)
+        length = self.__len__()
         return f"RedisConf<[{length} items]> @ {instance_id}"
     
     def __str__(self):
