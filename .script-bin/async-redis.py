@@ -157,7 +157,6 @@ def redis_server_popen(*args):
         return the subprocess handle instance
     """
     return subprocess.Popen(args,
-       bufsize=-1,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
          shell=False)
