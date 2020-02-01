@@ -1,0 +1,24 @@
+# This is Git's per-user configuration file.
+# [core]
+#     pager = delta --dark --theme="zenburn" --plus-color="#1919FF" --minus-color="#00BAF7"
+
+[user]
+    name = Yo Dogg
+    email = dogg.yoyo@gmail.com
+    signingkey = 123456789CRACK
+
+[github]
+    user = YoDogg
+
+[commit]
+    gpgsign = true
+
+[alias]
+    alias = config --get-regexp ^alias\\.
+    amend = commit --amend
+    conflicts = diff --name-only --diff-filter=U
+    last = log -1 HEAD
+    pop = stash pop
+    unstage = reset HEAD --
+    update = pull --all -v
+    upstream = push --all -v
