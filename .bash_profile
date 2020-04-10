@@ -25,6 +25,8 @@
 # • lorem
 # • youtube-dl
 # • direnv
+# • tree
+# • historian
 
 # HOMEBREW CASKS REQUIRED BY THE SHIT IN THIS FILE:
 # • Java
@@ -75,6 +77,7 @@ export PGDATA="/usr/local/var/postgres/ost2"
 export XML_CATALOG_FILES="/usr/local/etc/xml/catalog"
 export JAVA_HOME=`/usr/libexec/java_home`
 export CLICOLOR_FORCE=1 # q.v. `man tree`
+export COLUMNS=`tput cols`
 
 # the path of the righteous man is beset on all sides by evil
 MINIMAL_PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/X11/bin"
@@ -82,7 +85,7 @@ export ORIGINAL_PATH="${PATH}"
 export PATH="\
 ${localopt}/python/libexec/bin:\
 ${localopt}/ruby/bin:\
-${locallib}/ruby/gems/2.6.0/bin:\
+${locallib}/ruby/gems/2.7.0/bin:\
 ${localopt}/go/bin:\
 ${JAVA_HOME}/bin:\
 ${scriptbin}:\
@@ -107,12 +110,47 @@ ${locallib}/pkgconfig:\
 /opt/X11/lib/pkgconfig:\
 ${PKG_CONFIG_PATH}"
 
+# Android {S,N}DKs:
+export ANDROID_SDK_ROOT="/usr/local/share/android-sdk"
+export ANDROID_NDK_HOME="/usr/local/share/android-ndk"
+
 gls="${localbin}/gls --color=auto"
+tree="${localbin}/tree -AC -I \*.pyc"
 
 alias l="${gls} --ignore=\*.pyc -sF"
 alias ll="${gls} --ignore=\*.pyc -lshF"
 alias la="${gls} -asF"
 alias lla="${gls} -lashF"
+
+# alias lx="${tree} -t"
+# alias lxa="${tree} -ashF --dirsfirst"
+# alias lxd="${tree} -td"
+
+# … for some reason the “tree” command doesn’t reset
+# its ANSI format directives at the end of its output –
+# so we use this function to clean up after it:
+function ansi_reset () {
+    echo -n -e "\033[0m"
+}
+
+# …Also:
+#       -L max-directory-descent-level
+#       --filelimit max-files-before-stopping
+# …indeed!
+function lx () {
+    $tree -t $@
+    ansi_reset
+}
+
+function lxa () {
+    $tree -ashF --dirsfirst $@
+    ansi_reset
+}
+
+function lxd () {
+    $tree -td $@
+    ansi_reset
+}
 
 alias omode="/usr/bin/stat -f '%04A →'"
 
@@ -141,6 +179,8 @@ alias min="brightness -v 0.5"
 alias lipsum="lorem -n 100 | pbcopy"
 alias emacs="${localbin}/emacs --no-window-system"
 alias siri="say -v Samantha"
+alias pong="ping www.google.com"
+alias uuid="uuidgen"
 
 function fig () {
     # -f colossal: use the “colossal” figlet typeface
@@ -187,10 +227,10 @@ print(\":\".join(sys.path).strip(\":\"))\
 export BASE_PYTHONPATH="$(syspath)"
 
 # XDG environment variables:
-export XDG_DATA_HOME="${homedir}/Library/Application\ Support"
+export XDG_DATA_HOME="${homedir}/Library/Application Support"
 export XDG_DATA_DIRS="\
 ${XDG_DATA_HOME}:\
-/Library/Application\ Support:\
+/Library/Application Support:\
 /usr/local/share:\
 /usr/share:\
 /usr/X11/share"
@@ -203,6 +243,10 @@ ${homedir}/Library/Preferences:\
 
 export XDG_CACHE_HOME="${cachedir}"
 export XDG_STATE_HOME="${statedir}"
+
+# alias clupy="python -m bpython --config=/Users/fish/Dropbox/CLU/.config/bpython/config.py3 -i clu/scripts/repl-bpython.py"
+alias clupy="python -m bpython --config=/Users/fish/Dropbox/CLU/.config/bpython/config.py3 -i clu/scripts/repl.py"
+alias instapy="python -m bpython --config=/Users/fish/Dropbox/instakit/.config/bpython/config.py3 -i ../.script-bin/repl-bpython.py"
 
 # Include private Bash stuff:
 bash_private=${bashconfig}/private.bash
@@ -599,9 +643,13 @@ function yoyo () {
         #                                            { siz = split($0, vec) } \
         #                                        END { for (idx = 0; idx < siz; idx++) printf("%s\n", vec[idx]) }'
         
-        echo ""
-        echo -n "» Mode: $(omode ${pth}) "
-        [[ -d "${pth}" ]] && echo "directory" || echo "file"
+        omode=$(omode "${pth}")
+        if [[ $omode ]]; then
+            echo ""
+            echo -n "» Mode: ${omode} "
+            [[ -d "${pth}" ]] && echo "directory" || echo "file"
+        fi
+        
         if [[ ! -d "${pth}" ]]; then
             # echo "» file results for ${pth}"
             # echo ""
@@ -729,9 +777,25 @@ export HOMEBREW_REPOSITORY="/usr/local/Homebrew"
 ulimit -n 4096
 
 # Allow `more`/`less`/`most` to recognize ANSI colors in I/O:
+export MOST_INITFILE="${configdir}/most/lesskeys.rc"
+export MOST_SWITCHES="-s" # == “squeeze”: condense blank lines
 export MANPAGER="most"
-export PAGER="less"
-export LESS="-r"
+export PAGER="most"
+export LESS="-r"          # == use ANSI display
+
+# Historian/“hist”: bash-history database:
+if [[ -x "${localopt}/sqlite3/bin/sqlite" ]]; then
+    export HISTORIAN_SQLITE3="${localopt}/sqlite3/bin/sqlite"
+else
+    export HISTORIAN_SQLITE3="/usr/bin/sqlite3"
+fi
+
+# xterm and LANG:
+if [[ $TERM == "xterm" ]]; then
+    if [[ ! $LANG =~ "en_US.UTF-8" ]]; then
+        export LANG="en_US.UTF-8"
+    fi
+fi
 
 # Homebrew bash completion!
 homebrew_completion="$(brew --prefix)/etc/bash_completion"
@@ -746,3 +810,5 @@ export GPG_TTY=$(tty)
 
 eval "$(gdircolors ~/.dircolors/dircolors.256dark)" # Configure `dircolors` scheme
 eval "$(direnv hook bash)"                          # Configure `direnv` Bash hook
+
+complete -C /usr/local/bin/mc mc
