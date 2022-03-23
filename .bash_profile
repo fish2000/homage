@@ -50,8 +50,9 @@ exit:\
 *rm*-rf*:\
 *brew*cask*home*:\
 *brew*home*"                    # keep bad shit out of history
-shopt -s histappend             # append history rather than overwrite
 shopt -s cmdhist                # one command per line
+shopt -s histappend             # append history rather than overwrite
+shopt -s lithist                # use embedded newlines when condensing multilines
 
 unset HISTFILESIZE
 export HISTSIZE=1000000
@@ -66,15 +67,18 @@ cachedir="${homedir}/.cache"
 configdir="${homedir}/.config"
 scriptbin="${homedir}/.script-bin"
 statedir="${homedir}/.local/state"
+nodebin="${cachedir}/npm/bin"
 nodemodules="${cachedir}/npm/lib/node_modules"
 
-localbin="/usr/local/bin"
-locallib="/usr/local/lib"
-localopt="/usr/local/opt"
+localbase="$(brew --prefix)"
+localbin="${localbase}/bin"
+locallib="${localbase}/lib"
+localopt="${localbase}/opt"
 
 export EDITOR="${localbin}/emacs"
-export PGDATA="/usr/local/var/postgres/ost2"
-export XML_CATALOG_FILES="/usr/local/etc/xml/catalog"
+export HISTFILE="${homedir}/.bash_history"
+export PGDATA="${localbase}/var/postgres/ost2"
+export XML_CATALOG_FILES="${localbase}/etc/xml/catalog"
 export JAVA_HOME=`/usr/libexec/java_home`
 export CLICOLOR_FORCE=1 # q.v. `man tree`
 export COLUMNS=`tput cols`
@@ -86,11 +90,12 @@ export PATH="\
 ${localopt}/python/libexec/bin:\
 ${localopt}/ruby/bin:\
 ${locallib}/ruby/gems/2.7.0/bin:\
+${nodebin}:\
 ${localopt}/go/bin:\
 ${JAVA_HOME}/bin:\
 ${scriptbin}:\
 ${localbin}:\
-/usr/local/sbin:\
+${localbase}/sbin:\
 /Library/TeX/texbin:\
 ${MINIMAL_PATH}"
 
@@ -111,8 +116,8 @@ ${locallib}/pkgconfig:\
 ${PKG_CONFIG_PATH}"
 
 # Android {S,N}DKs:
-export ANDROID_SDK_ROOT="/usr/local/share/android-sdk"
-export ANDROID_NDK_HOME="/usr/local/share/android-ndk"
+export ANDROID_SDK_ROOT="${localbase}/share/android-sdk"
+export ANDROID_NDK_HOME="${localbase}/share/android-ndk"
 
 gls="${localbin}/gls --color=auto"
 tree="${localbin}/tree -AC -I \*.pyc"
@@ -138,17 +143,17 @@ function ansi_reset () {
 #       --filelimit max-files-before-stopping
 # …indeed!
 function lx () {
-    $tree -t $@
+    $tree -L 8 -t $@
     ansi_reset
 }
 
 function lxa () {
-    $tree -ashF --dirsfirst $@
+    $tree -L 8 -ashF --dirsfirst $@
     ansi_reset
 }
 
 function lxd () {
-    $tree -td $@
+    $tree -L 8 -td $@
     ansi_reset
 }
 
@@ -174,14 +179,6 @@ alias mateme="mate ${homedir}/.bash_profile"
 # alias sufs="${JANGY_PROJECT}/utils/getfilesuffixes.py"
 # alias gitwhat="git branch && git status"
 
-alias max="brightness -v 1"
-alias min="brightness -v 0.5"
-alias lipsum="lorem -n 100 | pbcopy"
-alias emacs="${localbin}/emacs --no-window-system"
-alias siri="say -v Samantha"
-alias pong="ping www.google.com"
-alias uuid="uuidgen"
-
 function fig () {
     # -f colossal: use the “colossal” figlet typeface
     # -k: do “kerning” – don’t crash letterforms into one another
@@ -192,6 +189,14 @@ function fig () {
     echo "$@" | figlet -f colossal -k -w `tput cols`
 }
 
+alias max="brightness -v 1"
+alias min="brightness -v 0.5"
+alias lipsum="lorem -n 100 | pbcopy"
+alias emacs="${localbin}/emacs --no-window-system"
+alias siri="say -v Samantha"
+alias pong="ping www.google.com"
+alias uuid="uuidgen"
+
 alias yg="youtube-dl -f mp4 --xattrs --add-metadata"
 alias sg="youtube-dl -f mp3 --xattrs --embed-thumbnail --add-metadata"
 alias ag="youtube-dl -f mp4 -x --audio-format mp3 --audio-quality 256K --xattrs --embed-thumbnail --add-metadata"
@@ -201,7 +206,7 @@ alias serve="open -a /Applications/Safari.app http://localhost:888/ && sudo PYTH
 alias texturetool="/Developer/Platforms/iPhoneOS.platform/Developer/usr/bin/texturetool"
 
 # N.B. the `columns` binary is from the Homebrew `autogen` formula:
-alias columnize="${localbin}/columns -W `tput cols`"
+alias columnize="${localbin}/columns --by-columns -W `tput cols`"
 
 alias pathvars="python -c '\
 from __future__ import print_function;import os;\
@@ -218,11 +223,7 @@ site.removeduppaths();\
 print(\":\".join(sys.path).strip(\":\"))\
 '"
 
-alias echosys="python -c '\
-from __future__ import print_function;import sys, site;\
-site.removeduppaths();\
-print(\":\".join(sys.path).strip(\":\"))\
-' | /usr/bin/sed -E 'y/:/\n/'"
+alias echosys="syspath | /usr/bin/sed -E 'y/:/\n/'"
 
 export BASE_PYTHONPATH="$(syspath)"
 
@@ -231,7 +232,7 @@ export XDG_DATA_HOME="${homedir}/Library/Application Support"
 export XDG_DATA_DIRS="\
 ${XDG_DATA_HOME}:\
 /Library/Application Support:\
-/usr/local/share:\
+${localbase}/share:\
 /usr/share:\
 /usr/X11/share"
 
@@ -239,7 +240,7 @@ export XDG_CONFIG_HOME="${configdir}"
 export XDG_CONFIG_DIRS="\
 ${homedir}/Library/Preferences:\
 /Library/Preferences:\
-/usr/local/etc/xdg"
+${localbase}/etc/xdg"
 
 export XDG_CACHE_HOME="${cachedir}"
 export XDG_STATE_HOME="${statedir}"
@@ -248,15 +249,14 @@ export XDG_STATE_HOME="${statedir}"
 alias clupy="python -m bpython --config=/Users/fish/Dropbox/CLU/.config/bpython/config.py3 -i clu/scripts/repl.py"
 alias instapy="python -m bpython --config=/Users/fish/Dropbox/instakit/.config/bpython/config.py3 -i ../.script-bin/repl-bpython.py"
 
-# Include private Bash stuff:
+# include private stuff
 bash_private=${bashconfig}/private.bash
 if [[ -f $bash_private ]]; then
     source $bash_private
 else
-    echo "- [ERROR] Missing bash support file: ${bash_private}"
+    echo "Missing bash support file: ${bash_private}"
 fi
 
-# Include URL downloading and filesystem caching Bash funcs:
 export URL_DOWNLOAD_CACHE=${cachedir}/bash_url_download
 url_dload=${bashconfig}/url_download.sh
 url_cache=${bashconfig}/url_cache.sh
@@ -279,12 +279,14 @@ function push () {
         return 1
     fi
     for argument in "$@"; do
-        if [[ ! -d $argument ]]; then
+        if [[ ! -d "${argument}" ]]; then
             echo "» pushd ${argument}: not a valid directory"
         else
-            pushd $argument
+            pushd "${argument}" > /dev/null 2>&1
         fi
     done
+    echo " »  Directory stack:"
+    dirs -v
 }
 
 function within () {
@@ -295,7 +297,7 @@ function within () {
     dst="${1:?- [ERROR] Target directory expected}"
     shift # restore all arguments to $@
     argcount=$#
-    if [[ ! -d $dst ]]; then
+    if [[ ! -d "${dst}" ]]; then
         echo "- [ERROR] Bad target directory: ${dst}"
         return 1
     fi
@@ -303,7 +305,7 @@ function within () {
         echo "- [ERROR] no command supplied to “within”"
         return 1
     fi
-    pushd $dst && \
+    pushd "${dst}" && \
         eval $@ && \
         popd
 }
@@ -322,34 +324,28 @@ function load_repl () {
 }
 
 function archive () {
-    # Usage:
-    # $ archive /tmp/yodogg ~/Dropbox/YoDogg    <-- Archives ~/Dropbox/YoDogg to
-    #                                                         /tmp/yodogg.dmg
-    dst="${1:?- [ERROR] Archive name expected}"
-    pth="${2:?- [ERROR] Source directory expected}"
-    volname="$(basename ${dst^^} | /usr/bin/sed -e s/[^A-Za-z0-9]/-/g)"
+    dst="${1:?Archive name expected}"
+    pth="${2:?Source directory expected}"
     hdiutil create -srcfolder $pth \
-        -volname $volname \
+        -volname "$(basename ${dst^^} | sed -e s/[^A-Za-z0-9]/-/g)" \
         -verbose -ov -nocrossdev -noscrub \
-        -format UDBZ "${dst}.dmg"
+        -format UDBZ "$(echo ${dst}).dmg"
 }
 
 function echopath () {
-    # Usage:
+    # usage:
     # $ echopath               <-- prints each path in $PATH
     # $ echopath PYTHONPATH    <-- prints each path in $PYTHONPATH
-    # … Path elements are printed one per line. They don’t have to
-    # be paths, strictly speaking: try e.g. `echopath HISTIGNORE`
-    # to see what I am talking about.
+    # … Path elements are printed one per line.
     pathvar="${1:-PATH}"
     
-    # Check for the variable named in the argument, if any:
+    # check named path variable (if any):
     if [[ ! ${!pathvar} ]]; then
-        echo "- [ERROR] Path variable ${pathvar} is unknown"
+        echo "- Path variable ${pathvar} is unknown"
         return 1
     fi
     
-    # Split the path into elements delineated by ':' charachters:
+    # Split the path value by ':' charachters and echo:
     echo "${!pathvar}" | /usr/bin/sed -E 'y/:/\n/'
 }
 
@@ -405,7 +401,7 @@ function extendpath () {
     verbose="${3:-1}"
     
     # Check the existence of the new path:
-    if [[ ! -d $newpath ]]; then
+    if [[ ! -d "${newpath}" ]]; then
         echo "- [ERROR] Directory does not exist: ${newpath}"
         return 1
     fi
@@ -421,7 +417,7 @@ function extendpath () {
     typeset -n path="${pathvar}"
     case ":${!pathvar}:" in
         *:$newpath:*)  ;;
-        *) path="$newpath:${!pathvar}"  ;;
+        *) path="${newpath}:${!pathvar}"  ;;
     esac
     
     # Re-export via nameref:
@@ -563,13 +559,13 @@ function gitwat () {
 }
 
 function repy () {
-    # Usage:
+    # usage:
     # $ repy numpy      <-- forces a reinstall of numpy, using pip
     if [ "$1" ]; then
         echo "[repy] Reinstalling ${1}…"
         pip install --upgrade --ignore-installed "${1}"
     else
-        echo "- [ERROR][repy] No package specified for reinstallation"
+        echo "[repy] No package specified for reinstallation"
     fi
 }
 
@@ -607,11 +603,11 @@ function yoyo () {
     if [[ ! -e "${upth}" ]]; then
         # argument is not an existant path,
         # look it up as a command name:
-        if [[ -x $(which $upth) ]]; then
+        if [[ -x $(which "${upth}") ]]; then
             # found a command named by $upth --
             # reassign with the command’s file path:
             echo "» Command: ${upth}"
-            upth=$(which $upth)
+            upth=$(which "${upth}")
         fi
     fi
     
@@ -625,7 +621,7 @@ function yoyo () {
         
         if [[ ! -d "${pth}" ]]; then
             echo ""
-            # echo "$(omode ${pth}) $(ll ${pth})"
+            # echo "$(omode "${pth}") $(ll "${pth}")"
             ll "${pth}"
         fi
         
@@ -686,7 +682,7 @@ function see () {
     if [[ ! -e "${upth}" ]]; then
         # argument is not an existant path,
         # look it up as a command name:
-        if [[ -x $(which $upth) ]]; then
+        if [[ -x $(which "${upth}") ]]; then
             # found a command named by $upth --
             # reassign with the command’s file path:
             # echo "» command: ${upth}"
@@ -719,27 +715,27 @@ function pyls () {
     fi
 }
 
-function getlinks () {
+function getlinks() {
     if [ "$1" ]; then
         echo "» Getting links for “${1}”:"
         curl -s "${1}" | BROWSER="/usr/bin/open -a /Applications/Safari.app %s" urlview
     fi
 }
 
-function anybar () {
+function anybar() {
     if [ "$1" ]; then
         port="${2:-1738}"
         echo "» Setting AnyBar at port ${port} to ${1}…"
         echo -n "${1}" | /usr/bin/nc -4u -w0 localhost "${port}"
     else
-        echo "- [ERROR] No color provided for AnyBar"
+        echo "- No color provided for AnyBar"
     fi
 }
 
-# Virtualenvwrapper: http://www.doughellmann.com/docs/virtualenvwrapper/
-export WORKON_HOME="${homedir}/Praxa"
+# virtualenvwrapper. http://www.doughellmann.com/docs/virtualenvwrapper/
+# export WORKON_HOME="${homedir}/Praxa"
 export PIP_RESPECT_VIRTUALENV=true
-export VIRTUALENVWRAPPER_PYTHON="${localopt}/python/libexec/bin/python"
+export VIRTUALENVWRAPPER_PYTHON="/opt/homebrew/opt/python/libexec/bin/python"
 
 # PROMPT.
 bash_prompt=${bashconfig}/bash_prompt.sh
@@ -759,21 +755,23 @@ fi
 
 # HOMEBREW.
 export HOMEBREW_INSTALL_BADGE=⚗️
-export HOMEBREW_VERBOSE=1
+#export HOMEBREW_VERBOSE=1
 export HOMEBREW_NO_ANALYTICS=1
+export HOMEBREW_NO_ENV_HINTS=1
 export HOMEBREW_EDITOR="${localbin}/mate"
 export HOMEBREW_CURL="${localbin}/curl"
 export HOMEBREW_GIT="${localbin}/git"
 
 # HOMEBREW: output from `brew shellenv`
-export HOMEBREW_PREFIX="/usr/local"
-export HOMEBREW_CELLAR="/usr/local/Cellar"
-export HOMEBREW_REPOSITORY="/usr/local/Homebrew"
-# export PATH="/usr/local/bin:/usr/local/sbin:$PATH"
-# export MANPATH="/usr/local/share/man:$MANPATH"
-# export INFOPATH="/usr/local/share/info:$INFOPATH"
+export HOMEBREW_PREFIX="${localbase}"
+export HOMEBREW_CELLAR="${localbase}/Cellar"
+export HOMEBREW_REPOSITORY="${localbase}/Homebrew"
+# export PATH="${localbase}/bin:${localbase}/sbin:$PATH"
+# export MANPATH="${localbase}/share/man:$MANPATH"
+# export INFOPATH="${localbase}/share/info:$INFOPATH"
 
-# Without this next command, postgres makes things freak out:
+# without this next command,
+# postgres makes everything freak out
 ulimit -n 4096
 
 # Allow `more`/`less`/`most` to recognize ANSI colors in I/O:
@@ -784,11 +782,13 @@ export PAGER="most"
 export LESS="-r"          # == use ANSI display
 
 # Historian/“hist”: bash-history database:
-if [[ -x "${localopt}/sqlite3/bin/sqlite" ]]; then
-    export HISTORIAN_SQLITE3="${localopt}/sqlite3/bin/sqlite"
+homebrew_sqlite="${localopt}/sqlite/bin/sqlite3"
+if [[ -x $homebrew_sqlite ]]; then
+    export HISTORIAN_SQLITE3=$homebrew_sqlite
 else
     export HISTORIAN_SQLITE3="/usr/bin/sqlite3"
 fi
+hist import 2> /dev/null > /dev/null
 
 # xterm and LANG:
 if [[ $TERM == "xterm" ]]; then
@@ -798,17 +798,20 @@ if [[ $TERM == "xterm" ]]; then
 fi
 
 # Homebrew bash completion!
-homebrew_completion="$(brew --prefix)/etc/bash_completion"
+homebrew_completion="${localbase}/etc/bash_completion"
 if [[ -f $homebrew_completion ]]; then
     source $homebrew_completion
 else
     echo "- [ERROR] Missing Homebrew support file: ${homebrew_completion}"
 fi
 
+# luarocks bash completion!
+source <(luarocks completion bash)
+
 # q.v. https://help.github.com/articles/telling-git-about-your-gpg-key/
 export GPG_TTY=$(tty)
 
-eval "$(gdircolors ~/.dircolors/dircolors.256dark)" # Configure `dircolors` scheme
-eval "$(direnv hook bash)"                          # Configure `direnv` Bash hook
+eval "$(gdircolors ~/.dircolors/dircolors.256dark)"
+eval "$(direnv hook bash)"
 
-complete -C /usr/local/bin/mc mc
+complete -C "${localbase}/bin/mc" mc
